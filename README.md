@@ -41,7 +41,22 @@ An Android application that captures system audio and transcribes it using AI, c
 - Manifest permissions set up
 - Basic UI foundation with Compose
 
-**Next**: Task #2 - Implement Audio Capture Service
+✅ **Task #2**: Implement Audio Capture Service - **COMPLETE**
+- MediaProjection integration for system audio access
+- AudioPlaybackCapture implementation
+- High-quality WAV file recording (44.1kHz stereo)
+- Foreground service with notification controls
+- Comprehensive permission management
+
+✅ **Task #3**: Develop Basic UI - **COMPLETE**
+- Material 3 UI design with Compose
+- Permission status indicators and controls
+- Start/Stop recording functionality
+- Transcription results display area
+- Processing state indicators
+- Professional user experience
+
+**Next**: Task #4 - Implement Transcription API Integration
 
 ## Development
 This project follows the PRD outlined in `.taskmaster/docs/prd.txt` and uses Task Master for project management.

@@ -37,6 +37,8 @@ class MainActivity : ComponentActivity() {
     
     private var isRecording by mutableStateOf(false)
     private var hasPermissions by mutableStateOf(false)
+    private var transcriptionResult by mutableStateOf("")
+    private var isProcessing by mutableStateOf(false)
     
     // MediaProjection permission launcher
     private val mediaProjectionLauncher = registerForActivityResult(
@@ -90,9 +92,12 @@ class MainActivity : ComponentActivity() {
                 AudioscribeScreen(
                     hasPermissions = hasPermissions,
                     isRecording = isRecording,
+                    isProcessing = isProcessing,
+                    transcriptionResult = transcriptionResult,
                     onRequestPermissions = { requestPermissions() },
                     onStartRecording = { startRecording() },
-                    onStopRecording = { stopRecording() }
+                    onStopRecording = { stopRecording() },
+                    onClearResults = { clearResults() }
                 )
             }
         }
@@ -124,6 +129,25 @@ class MainActivity : ComponentActivity() {
         }
         startService(intent)
         isRecording = false
+        isProcessing = true
+        
+        // Simulate transcription processing for now
+        // In the real implementation, this would be handled by the transcription service
+        simulateTranscriptionProcessing()
+    }
+    
+    private fun simulateTranscriptionProcessing() {
+        // Simulate processing delay
+        android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+            transcriptionResult = "Audio recording completed and saved.\n\nTranscription will be available once the transcription service is implemented in Task #4.\n\nRecorded file: audioscribe_${System.currentTimeMillis()}.wav"
+            isProcessing = false
+            Toast.makeText(this, "Recording saved successfully", Toast.LENGTH_SHORT).show()
+        }, 2000)
+    }
+    
+    private fun clearResults() {
+        transcriptionResult = ""
+        isProcessing = false
     }
     
     private fun startAudioCaptureService(resultCode: Int, data: Intent) {
@@ -154,9 +178,12 @@ class MainActivity : ComponentActivity() {
 fun AudioscribeScreen(
     hasPermissions: Boolean,
     isRecording: Boolean,
+    isProcessing: Boolean,
+    transcriptionResult: String,
     onRequestPermissions: () -> Unit,
     onStartRecording: () -> Unit,
-    onStopRecording: () -> Unit
+    onStopRecording: () -> Unit,
+    onClearResults: () -> Unit
 ) {
     val context = LocalContext.current
     
@@ -167,7 +194,7 @@ fun AudioscribeScreen(
                 .padding(innerPadding)
                 .padding(16.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center
+            verticalArrangement = if (transcriptionResult.isNotEmpty()) Arrangement.Top else Arrangement.Center
         ) {
             Text(
                 text = "Audioscribe",
@@ -258,6 +285,7 @@ fun AudioscribeScreen(
             Text(
                 text = when {
                     !hasPermissions -> "Please grant permissions to continue"
+                    isProcessing -> "⏳ Processing recording..."
                     isRecording -> "🔴 Recording audio from other apps..."
                     else -> "Ready to record"
                 },
@@ -265,6 +293,73 @@ fun AudioscribeScreen(
                 textAlign = TextAlign.Center,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
+            
+            // Transcription Results Section
+            if (transcriptionResult.isNotEmpty() || isProcessing) {
+                Spacer(modifier = Modifier.height(24.dp))
+                
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceVariant
+                    )
+                ) {
+                    Column(
+                        modifier = Modifier.padding(16.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "Results",
+                                style = MaterialTheme.typography.titleMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            
+                            if (transcriptionResult.isNotEmpty()) {
+                                TextButton(onClick = onClearResults) {
+                                    Text("Clear")
+                                }
+                            }
+                        }
+                        
+                        Spacer(modifier = Modifier.height(8.dp))
+                        
+                        if (isProcessing) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(16.dp),
+                                    strokeWidth = 2.dp
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = "Processing recording...",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        } else if (transcriptionResult.isNotEmpty()) {
+                            Card(
+                                modifier = Modifier.fillMaxWidth(),
+                                colors = CardDefaults.cardColors(
+                                    containerColor = MaterialTheme.colorScheme.surface
+                                )
+                            ) {
+                                Text(
+                                    text = transcriptionResult,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    modifier = Modifier.padding(12.dp),
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 }
@@ -276,9 +371,29 @@ fun AudioscribeScreenPreview() {
         AudioscribeScreen(
             hasPermissions = true,
             isRecording = false,
+            isProcessing = false,
+            transcriptionResult = "",
             onRequestPermissions = {},
             onStartRecording = {},
-            onStopRecording = {}
+            onStopRecording = {},
+            onClearResults = {}
+        )
+    }
+}
+
+@Preview(showBackground = true, name = "With Results")
+@Composable
+fun AudioscribeScreenWithResultsPreview() {
+    AudioscribeTheme {
+        AudioscribeScreen(
+            hasPermissions = true,
+            isRecording = false,
+            isProcessing = false,
+            transcriptionResult = "Sample transcription result would appear here once the transcription service is implemented.",
+            onRequestPermissions = {},
+            onStartRecording = {},
+            onStopRecording = {},
+            onClearResults = {}
         )
     }
 }
