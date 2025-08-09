@@ -3,40 +3,358 @@ package com.audioscribe.app.service
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.app.PendingIntent
 import android.app.Service
+import android.content.Context
 import android.content.Intent
+import android.media.AudioAttributes
+import android.media.AudioFormat
+import android.media.AudioPlaybackCaptureConfiguration
+import android.media.AudioRecord
+import android.media.projection.MediaProjection
+import android.media.projection.MediaProjectionManager
 import android.os.Build
 import android.os.IBinder
+import android.util.Log
+import androidx.annotation.RequiresApi
 import androidx.core.app.NotificationCompat
+import androidx.lifecycle.LifecycleService
 import com.audioscribe.app.R
+import com.audioscribe.app.ui.MainActivity
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.io.File
+import java.io.FileOutputStream
+import java.io.IOException
 
 /**
  * Foreground service for capturing system audio
- * Uses MediaProjection API to capture audio from other apps
+ * Uses MediaProjection API with AudioPlaybackCapture to capture audio from other apps
  */
-class AudioCaptureService : Service() {
+@RequiresApi(Build.VERSION_CODES.Q)
+class AudioCaptureService : LifecycleService() {
     
     companion object {
+        private const val TAG = "AudioCaptureService"
         private const val NOTIFICATION_ID = 1
         private const val CHANNEL_ID = "audio_capture_channel"
         private const val CHANNEL_NAME = "Audio Capture"
+        
+        // Audio configuration constants
+        private const val SAMPLE_RATE = 44100
+        private const val CHANNEL_CONFIG = AudioFormat.CHANNEL_IN_STEREO
+        private const val AUDIO_FORMAT = AudioFormat.ENCODING_PCM_16BIT
+        
+        // Intent extras
+        const val EXTRA_RESULT_CODE = "EXTRA_RESULT_CODE"
+        const val EXTRA_RESULT_DATA = "EXTRA_RESULT_DATA"
+        
+        // Actions
+        const val ACTION_START_CAPTURE = "ACTION_START_CAPTURE"
+        const val ACTION_STOP_CAPTURE = "ACTION_STOP_CAPTURE"
     }
+    
+    private var mediaProjection: MediaProjection? = null
+    private var audioRecord: AudioRecord? = null
+    private var isRecording = false
+    private var recordingJob: Job? = null
+    private val serviceScope = CoroutineScope(Dispatchers.IO + Job())
+    
+    private var outputFile: File? = null
     
     override fun onCreate() {
         super.onCreate()
         createNotificationChannel()
+        Log.d(TAG, "AudioCaptureService created")
     }
     
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        startForeground(NOTIFICATION_ID, createNotification())
+        super.onStartCommand(intent, flags, startId)
         
-        // TODO: Initialize MediaProjection and AudioPlaybackCapture
-        // This will be implemented in the next task
+        when (intent?.action) {
+            ACTION_START_CAPTURE -> {
+                val resultCode = intent.getIntExtra(EXTRA_RESULT_CODE, 0)
+                val resultData = intent.getParcelableExtra<Intent>(EXTRA_RESULT_DATA)
+                
+                if (resultCode != 0 && resultData != null) {
+                    startAudioCapture(resultCode, resultData)
+                } else {
+                    Log.e(TAG, "Invalid MediaProjection data")
+                    stopSelf()
+                }
+            }
+            ACTION_STOP_CAPTURE -> {
+                stopAudioCapture()
+            }
+            else -> {
+                Log.w(TAG, "Unknown action: ${intent?.action}")
+            }
+        }
         
         return START_STICKY
     }
     
+    private fun startAudioCapture(resultCode: Int, resultData: Intent) {
+        if (isRecording) {
+            Log.w(TAG, "Already recording")
+            return
+        }
+        
+        try {
+            // Initialize MediaProjection
+            val mediaProjectionManager = getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
+            mediaProjection = mediaProjectionManager.getMediaProjection(resultCode, resultData)
+            
+            if (mediaProjection == null) {
+                Log.e(TAG, "Failed to create MediaProjection")
+                stopSelf()
+                return
+            }
+            
+            // Create output file
+            createOutputFile()
+            
+            // Set up AudioPlaybackCaptureConfiguration
+            val config = AudioPlaybackCaptureConfiguration.Builder(mediaProjection!!)
+                .addMatchingUsage(AudioAttributes.USAGE_MEDIA)
+                .addMatchingUsage(AudioAttributes.USAGE_GAME)
+                .addMatchingUsage(AudioAttributes.USAGE_UNKNOWN)
+                .build()
+            
+            // Calculate buffer size
+            val bufferSize = AudioRecord.getMinBufferSize(SAMPLE_RATE, CHANNEL_CONFIG, AUDIO_FORMAT)
+            if (bufferSize == AudioRecord.ERROR || bufferSize == AudioRecord.ERROR_BAD_VALUE) {
+                Log.e(TAG, "Invalid buffer size: $bufferSize")
+                stopSelf()
+                return
+            }
+            
+            // Create AudioRecord with playback capture
+            val audioFormat = AudioFormat.Builder()
+                .setEncoding(AUDIO_FORMAT)
+                .setSampleRate(SAMPLE_RATE)
+                .setChannelMask(CHANNEL_CONFIG)
+                .build()
+            
+            audioRecord = AudioRecord.Builder()
+                .setAudioFormat(audioFormat)
+                .setBufferSizeInBytes(bufferSize * 2) // Double buffer for safety
+                .setAudioPlaybackCaptureConfig(config)
+                .build()
+            
+            if (audioRecord?.state != AudioRecord.STATE_INITIALIZED) {
+                Log.e(TAG, "AudioRecord initialization failed")
+                stopSelf()
+                return
+            }
+            
+            // Start foreground service
+            startForeground(NOTIFICATION_ID, createNotification(true))
+            
+            // Start recording
+            audioRecord?.startRecording()
+            isRecording = true
+            
+            // Start recording coroutine
+            recordingJob = serviceScope.launch {
+                recordAudio()
+            }
+            
+            Log.i(TAG, "Audio capture started successfully")
+            
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to start audio capture", e)
+            stopSelf()
+        }
+    }
+    
+    private fun stopAudioCapture() {
+        if (!isRecording) {
+            Log.w(TAG, "Not recording")
+            return
+        }
+        
+        isRecording = false
+        recordingJob?.cancel()
+        
+        try {
+            audioRecord?.stop()
+            audioRecord?.release()
+            audioRecord = null
+            
+            mediaProjection?.stop()
+            mediaProjection = null
+            
+            Log.i(TAG, "Audio capture stopped")
+            
+        } catch (e: Exception) {
+            Log.e(TAG, "Error stopping audio capture", e)
+        }
+        
+        stopForeground(true)
+        stopSelf()
+    }
+    
+    private suspend fun recordAudio() = withContext(Dispatchers.IO) {
+        val audioRecord = this@AudioCaptureService.audioRecord ?: return@withContext
+        val outputFile = this@AudioCaptureService.outputFile ?: return@withContext
+        
+        val bufferSize = AudioRecord.getMinBufferSize(SAMPLE_RATE, CHANNEL_CONFIG, AUDIO_FORMAT)
+        val audioBuffer = ByteArray(bufferSize)
+        
+        try {
+            FileOutputStream(outputFile).use { fos ->
+                // Write WAV header (will be updated later with correct size)
+                writeWavHeader(fos, 0)
+                
+                var totalBytesWritten = 0
+                
+                while (isRecording) {
+                    val bytesRead = audioRecord.read(audioBuffer, 0, audioBuffer.size)
+                    
+                    if (bytesRead > 0) {
+                        fos.write(audioBuffer, 0, bytesRead)
+                        totalBytesWritten += bytesRead
+                    } else if (bytesRead == AudioRecord.ERROR_INVALID_OPERATION) {
+                        Log.e(TAG, "AudioRecord read error: ERROR_INVALID_OPERATION")
+                        break
+                    } else if (bytesRead == AudioRecord.ERROR_BAD_VALUE) {
+                        Log.e(TAG, "AudioRecord read error: ERROR_BAD_VALUE")
+                        break
+                    }
+                }
+                
+                // Update WAV header with correct file size
+                fos.close()
+                updateWavHeader(outputFile, totalBytesWritten)
+                
+                Log.i(TAG, "Audio recording saved: ${outputFile.absolutePath}, size: $totalBytesWritten bytes")
+            }
+        } catch (e: IOException) {
+            Log.e(TAG, "Error writing audio data", e)
+        }
+    }
+    
+    private fun createOutputFile() {
+        val timestamp = System.currentTimeMillis()
+        val fileName = "audioscribe_$timestamp.wav"
+        outputFile = File(getExternalFilesDir(null), fileName)
+        Log.d(TAG, "Output file: ${outputFile?.absolutePath}")
+    }
+    
+    private fun writeWavHeader(fos: FileOutputStream, dataSize: Int) {
+        val header = ByteArray(44)
+        val totalSize = dataSize + 36
+        val byteRate = SAMPLE_RATE * 2 * 2 // SampleRate * NumChannels * BitsPerSample/8
+        
+        // RIFF header
+        header[0] = 'R'.code.toByte()
+        header[1] = 'I'.code.toByte()
+        header[2] = 'F'.code.toByte()
+        header[3] = 'F'.code.toByte()
+        
+        // File size
+        header[4] = (totalSize and 0xff).toByte()
+        header[5] = ((totalSize shr 8) and 0xff).toByte()
+        header[6] = ((totalSize shr 16) and 0xff).toByte()
+        header[7] = ((totalSize shr 24) and 0xff).toByte()
+        
+        // WAVE header
+        header[8] = 'W'.code.toByte()
+        header[9] = 'A'.code.toByte()
+        header[10] = 'V'.code.toByte()
+        header[11] = 'E'.code.toByte()
+        
+        // fmt subchunk
+        header[12] = 'f'.code.toByte()
+        header[13] = 'm'.code.toByte()
+        header[14] = 't'.code.toByte()
+        header[15] = ' '.code.toByte()
+        
+        // Subchunk1Size (16 for PCM)
+        header[16] = 16
+        header[17] = 0
+        header[18] = 0
+        header[19] = 0
+        
+        // AudioFormat (1 for PCM)
+        header[20] = 1
+        header[21] = 0
+        
+        // NumChannels (2 for stereo)
+        header[22] = 2
+        header[23] = 0
+        
+        // SampleRate
+        header[24] = (SAMPLE_RATE and 0xff).toByte()
+        header[25] = ((SAMPLE_RATE shr 8) and 0xff).toByte()
+        header[26] = ((SAMPLE_RATE shr 16) and 0xff).toByte()
+        header[27] = ((SAMPLE_RATE shr 24) and 0xff).toByte()
+        
+        // ByteRate
+        header[28] = (byteRate and 0xff).toByte()
+        header[29] = ((byteRate shr 8) and 0xff).toByte()
+        header[30] = ((byteRate shr 16) and 0xff).toByte()
+        header[31] = ((byteRate shr 24) and 0xff).toByte()
+        
+        // BlockAlign
+        header[32] = 4 // NumChannels * BitsPerSample/8
+        header[33] = 0
+        
+        // BitsPerSample
+        header[34] = 16
+        header[35] = 0
+        
+        // data subchunk
+        header[36] = 'd'.code.toByte()
+        header[37] = 'a'.code.toByte()
+        header[38] = 't'.code.toByte()
+        header[39] = 'a'.code.toByte()
+        
+        // Subchunk2Size (data size)
+        header[40] = (dataSize and 0xff).toByte()
+        header[41] = ((dataSize shr 8) and 0xff).toByte()
+        header[42] = ((dataSize shr 16) and 0xff).toByte()
+        header[43] = ((dataSize shr 24) and 0xff).toByte()
+        
+        fos.write(header)
+    }
+    
+    private fun updateWavHeader(file: File, dataSize: Int) {
+        try {
+            val raf = java.io.RandomAccessFile(file, "rw")
+            val totalSize = dataSize + 36
+            
+            // Update file size at offset 4
+            raf.seek(4)
+            raf.write(totalSize and 0xff)
+            raf.write((totalSize shr 8) and 0xff)
+            raf.write((totalSize shr 16) and 0xff)
+            raf.write((totalSize shr 24) and 0xff)
+            
+            // Update data size at offset 40
+            raf.seek(40)
+            raf.write(dataSize and 0xff)
+            raf.write((dataSize shr 8) and 0xff)
+            raf.write((dataSize shr 16) and 0xff)
+            raf.write((dataSize shr 24) and 0xff)
+            
+            raf.close()
+        } catch (e: IOException) {
+            Log.e(TAG, "Error updating WAV header", e)
+        }
+    }
+    
     override fun onBind(intent: Intent?): IBinder? = null
+    
+    override fun onDestroy() {
+        super.onDestroy()
+        stopAudioCapture()
+        Log.d(TAG, "AudioCaptureService destroyed")
+    }
     
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -46,6 +364,7 @@ class AudioCaptureService : Service() {
                 NotificationManager.IMPORTANCE_LOW
             ).apply {
                 description = "Shows when Audioscribe is capturing audio"
+                setSound(null, null)
             }
             
             val notificationManager = getSystemService(NotificationManager::class.java)
@@ -53,12 +372,35 @@ class AudioCaptureService : Service() {
         }
     }
     
-    private fun createNotification(): Notification {
-        return NotificationCompat.Builder(this, CHANNEL_ID)
+    private fun createNotification(isRecording: Boolean = false): Notification {
+        val intent = Intent(this, MainActivity::class.java)
+        val pendingIntent = PendingIntent.getActivity(
+            this, 0, intent, 
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        
+        val stopIntent = Intent(this, AudioCaptureService::class.java).apply {
+            action = ACTION_STOP_CAPTURE
+        }
+        val stopPendingIntent = PendingIntent.getService(
+            this, 1, stopIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        
+        val builder = NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("Audioscribe")
-            .setContentText("Capturing audio...")
             .setSmallIcon(R.drawable.ic_notification)
+            .setContentIntent(pendingIntent)
             .setOngoing(true)
-            .build()
+            .setSilent(true)
+        
+        if (isRecording) {
+            builder.setContentText("Recording audio...")
+                .addAction(R.drawable.ic_notification, "Stop", stopPendingIntent)
+        } else {
+            builder.setContentText("Starting audio capture...")
+        }
+        
+        return builder.build()
     }
 }

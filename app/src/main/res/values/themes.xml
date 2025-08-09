@@ -7,4 +7,11 @@
     </style>
 
     <style name="Theme.Audioscribe" parent="Base.Theme.Audioscribe" />
+    
+    <!-- Splash theme for better startup experience -->
+    <style name="Theme.Audioscribe.Splash" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenBackground">@color/splash_background</item>
+        <item name="windowSplashScreenAnimatedIcon">@drawable/ic_notification</item>
+        <item name="postSplashScreenTheme">@style/Theme.Audioscribe</item>
+    </style>
 </resources>
