@@ -2,7 +2,6 @@ plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
-    alias(libs.plugins.google.gms.google.services)
     alias(libs.plugins.kotlin.kapt)
 }
 
@@ -82,10 +81,10 @@ dependencies {
     implementation(libs.androidx.lifecycle.livedata.ktx)
     implementation(libs.androidx.lifecycle.service)
 
-    // Firebase
-    implementation(platform(libs.firebase.bom))
-    implementation(libs.firebase.storage)
-    implementation(libs.firebase.auth)
+    // Firebase - Removed for local-only build
+    // implementation(platform(libs.firebase.bom))
+    // implementation(libs.firebase.storage)
+    // implementation(libs.firebase.auth)
 
     // Permissions
     implementation(libs.accompanist.permissions)

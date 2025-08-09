@@ -6,7 +6,7 @@ An Android application that captures system audio and transcribes it using AI, c
 - **System Audio Capture**: Uses MediaProjection API to capture audio from other apps
 - **AI Transcription**: Leverages OpenAI Whisper API for accurate speech-to-text
 - **Local Storage**: Room database for offline transcript access
-- **Cloud Sync**: Firebase Storage for backup and cross-device access
+- **Local-Only Operation**: All data stored locally on device (no cloud dependencies)
 - **Background Processing**: WorkManager for reliable background tasks
 
 ## Technical Stack
@@ -16,7 +16,7 @@ An Android application that captures system audio and transcribes it using AI, c
 - **Database**: Room (SQLite)
 - **Networking**: Retrofit + OkHttp
 - **Background Tasks**: WorkManager
-- **Cloud Storage**: Firebase Storage
+- **Local Storage**: Device internal/external storage
 - **Dependency Injection**: Manual (initially)
 
 ## Requirements
