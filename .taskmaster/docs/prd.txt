@@ -1,0 +1,173 @@
+### **Product Requirements Document: "Audioscribe"**
+
+---
+
+### **1. Overview**
+
+**Problem:** Valuable knowledge and information consumed through passive audio and video streams (like YouTube and podcasts) is ephemeral and difficult to recall or reference later. Manually taking notes is impractical, and existing methods for obtaining transcripts are often cumbersome or unavailable.
+
+**Solution:** Audioscribe is a native Android application that runs in the background to capture the system's media audio output. It then sends this audio to a state-of-the-art AI service for transcription. The resulting text is saved locally on the device and automatically synced to the user's cloud storage.
+
+**Target Audience:**
+*   **Lifelong Learners & Students:** Individuals who use platforms like YouTube and podcasts for education and want to build a searchable knowledge repository from what they hear.
+*   **Content Creators & Researchers:** Professionals who need to efficiently review hours of audio/video content to extract quotes, summarize information, and generate outlines.
+*   **Knowledge Workers:** Anyone who wants to turn passive listening time during commutes or other activities into a productive, documented asset.
+
+**Value Proposition:** Audioscribe transforms passive audio consumption into a structured, searchable, and archivable knowledge base, unlocking the full potential of auditory learning.
+
+---
+
+### **2. Core Features**
+
+**2.1. System Audio Capture Service**
+*   **What it does:** Captures any audio being played by other media applications on the device (e.g., YouTube, Spotify, Pocket Casts) without needing root access.
+*   **Why it's important:** This is the foundational feature that provides the raw material for transcription automatically and seamlessly. It removes the friction of manual recording.
+*   **How it works:** The app will use a `ForegroundService` to stay active in the background. It will leverage Android 10's (API 29) `AudioPlaybackCapture` API, initiated through a `MediaProjection` user-permission prompt, to tap into the device's media audio stream. The service will display a persistent notification to keep the user aware and in control.
+
+**2.2. Automated Audio-to-Text Transcription**
+*   **What it does:** Converts the captured audio stream into written text in near real-time.
+*   **Why it's important:** This is the core value of the application, turning unstructured audio into structured, usable data.
+*   **How it works:** The captured audio will be buffered and saved into discrete chunks (e.g., 60-second WAV files). Each chunk will be passed to a cloud-based speech-to-text API. For the initial version, the **OpenAI Whisper API** will be used due to its high accuracy and cost-effectiveness. The API call will return a text transcript for that chunk.
+
+**2.3. Local Transcript Management**
+*   **What it does:** Stores, organizes, and displays the generated transcripts on the device.
+*   **Why it's important:** Provides immediate, offline access to transcripts, allowing users to review them without relying on a network connection.
+*   **How it works:** Transcripts will be stored in a local database (using **Android Room**) that manages metadata like session start/end times and the content of each transcribed chunk. The UI will present a simple, scrollable list of transcription sessions.
+
+**2.4. Cloud Storage Synchronization**
+*   **What it does:** Automatically and reliably uploads completed transcripts to the user's designated Google Cloud Storage (GCS) bucket.
+*   **Why it's important:** Ensures transcripts are backed up, accessible from other devices, and available for integration with other knowledge management workflows or LLM summarization tools.
+*   **How it works:** An Android `WorkManager` job will be enqueued for each transcript. This ensures the upload is robust and will execute even if the app is closed or the network is temporarily unavailable. The app will use the **Firebase Storage SDK** to simplify authentication and the upload process to GCS.
+
+---
+
+### **3. User Experience**
+
+**3.1. User Personas**
+*   **Alex, the Lifelong Learner:** Listens to educational YouTube channels and tech podcasts during his commute. He wants to easily find key concepts and build a personal wiki without the hassle of scrubbing through videos or taking manual notes.
+*   **Maria, the Content Creator:** Researches topics by watching hours of interviews and documentaries. She needs accurate transcripts to quickly locate quotes and structure her video scripts.
+
+**3.2. Key User Flows**
+1.  **Onboarding & First Use:** The user installs the app, is greeted with a brief explanation of what it does, and is prompted to grant the necessary `RECORD_AUDIO` and `POST_NOTIFICATIONS` permissions.
+2.  **Starting a Transcription Session:**
+    *   The user opens the app and taps a prominent "Start Recording" button.
+    *   An Android system dialog appears, asking for permission to capture screen/audio content. The user taps "Start Now."
+    *   A persistent notification appears in the status bar, indicating that Audioscribe is actively capturing audio.
+3.  **During a Session:** The user navigates to their media app (YouTube, etc.) and begins listening. The app works silently in the background.
+4.  **Stopping a Session:** The user can stop the capture by either returning to the app and tapping "Stop" or by using a "Stop" action on the persistent notification.
+5.  **Viewing Transcripts:** The user opens the app to see a list of past sessions, identified by date and time. Tapping on a session opens a detailed view showing the full, concatenated transcript.
+
+**3.3. UI/UX Considerations**
+*   **Minimalism:** The main screen should be simple: a large start/stop button and a list of recent transcripts.
+*   **Clarity:** The recording status must be unambiguous, primarily through the persistent notification. Error states (e.g., no network for upload, capture permission denied) should be clearly communicated.
+*   **Control:** The user must have an easy and immediate way to stop the recording at all times.
+*   **Permissions:** Permission requests should be made in context, with clear explanations of why they are needed.
+
+---
+
+### **4. Technical Architecture**
+
+**4.1. System Components**
+*   **Android Client:**
+    *   **Activity/UI Layer:** Manages user interaction, permissions, and displays transcript data.
+    *   **Foreground Service:** Hosts the `AudioRecord` instance configured with `AudioPlaybackCaptureConfiguration` to ensure continuous background operation.
+    *   **WorkManager:** Manages durable background tasks for uploading audio chunks and triggering transcription.
+    *   **Room Database:** Persists session metadata and transcript text for local access.
+    *   **Retrofit/OkHttp:** Manages network calls to the transcription API.
+*   **Cloud Infrastructure (GCP):**
+    *   **Firebase/Google Cloud Storage:** Serves as the destination for final audio and text transcripts.
+*   **External Services:**
+    *   **OpenAI Whisper API:** The endpoint for performing speech-to-text conversion.
+
+**4.2. Data Models**
+*   **`TranscriptionSession` (Room Entity):**
+    *   `id`: Primary Key
+    *   `startTime`: Long
+    *   `endTime`: Long (nullable)
+    *   `status`: String (e.g., "RECORDING", "PROCESSING", "COMPLETE")
+*   **`TranscriptChunk` (Room Entity):**
+    *   `id`: Primary Key
+    *   `sessionId`: Foreign Key to `TranscriptionSession`
+    *   `chunkIndex`: Int
+    *   `text`: String
+    *   `gcsPath`: String (optional, path to the audio chunk in GCS)
+
+**4.3. APIs and Integrations**
+*   **Android APIs:** `MediaProjection`, `AudioPlaybackCapture`, `ForegroundService`, `WorkManager`, `Room`.
+*   **Cloud APIs:** Firebase Storage SDK for uploads.
+*   **Transcription API:** HTTP POST request to OpenAI's `/v1/audio/transcriptions` endpoint, sending audio file data and receiving a JSON/text response.
+
+**4.4. Infrastructure Requirements**
+*   A Google Cloud Project with the Firebase service enabled.
+*   A configured Google Cloud Storage bucket with appropriate security rules.
+*   An API key for the OpenAI API.
+
+---
+
+### **5. Development Roadmap**
+
+**5.1. MVP: Core End-to-End Flow**
+1.  **Audio Capture to File:** Implement the `ForegroundService` with `MediaProjection` to capture media audio and successfully save it as a playable local WAV file.
+2.  **Basic UI:** Create a single Activity with a "Start/Stop" button and a `TextView` to display results.
+3.  **Manual Transcription Trigger:** Implement a function that uses Retrofit to send the saved WAV file to the OpenAI Whisper API. The API key can be temporarily hardcoded.
+4.  **Display Result:** Display the raw text returned from the API in the `TextView`.
+*   **Goal:** Prove the core capture-transcribe-display loop is functional on a target device.
+
+**5.2. Phase 2: Automation & Robustness**
+1.  **Audio Chunking:** Modify the service to save audio in sequential, fixed-length chunks (e.g., 1-minute files).
+2.  **Integrate WorkManager:** Refactor the API call into a `CoroutineWorker`. For each audio chunk created, enqueue a `OneTimeWorkRequest` to handle its processing.
+3.  **Cloud Upload:** Integrate the Firebase Storage SDK. The `WorkManager` job will first upload the audio chunk to GCS and then trigger the transcription.
+4.  **Local Persistence:** Implement the Room database schema. Store session information and save completed transcript chunks to the database.
+5.  **Transcript Viewer:** Create a simple list/detail UI to display the saved sessions and their concatenated transcripts from the Room database.
+6.  **API Key Security:** Move the OpenAI API key out of the client app and into a secure environment (e.g., a simple cloud function proxy if needed, though for an individual tool, secure local storage might suffice initially).
+
+**5.3. Future Enhancements**
+1.  **Advanced UI:** Implement search functionality within transcripts, transcript management (delete, rename), and a settings screen.
+2.  **Bandwidth Optimization:** Add on-the-fly audio encoding to a compressed format like FLAC before uploading.
+3.  **Smart Segmentation:** Investigate silence detection to create more logical audio chunks instead of fixed-time splits.
+4.  **Provider Choice:** Allow users to optionally configure and use Google Cloud Speech-to-Text as an alternative transcription engine.
+5.  **Summarization Hook:** After a transcript is saved to GCS, trigger a cloud function to send it to a generative LLM (like GPT-4 or Gemini) for summarization, saving the result alongside the transcript.
+
+---
+
+### **6. Logical Dependency Chain**
+
+1.  **Foundation:** Project setup with all necessary dependencies (Kotlin Coroutines, Room, WorkManager, Retrofit, Firebase).
+2.  **Audio Capture (Proof of Concept):** Build the `ForegroundService` and get `MediaProjection` working. **This is the first critical milestone.** The immediate goal is to reliably save an audio file captured from YouTube to the device's local storage.
+3.  **Transcription (Proof of Concept):** In isolation, write a script/function that can take a local audio file and get a successful transcription from the Whisper API. This validates the transcription pipeline independently.
+4.  **MVP Integration:** Combine #2 and #3. The service now captures audio, saves a file, and immediately triggers the transcription, displaying the result. This creates the first usable, end-to-end version of the product.
+5.  **Introduce Robustness (`WorkManager`):** Decouple the transcription process from the service. The service's only job is to capture and save chunks, then enqueue a task for `WorkManager`. This makes the system resilient.
+6.  **Introduce Cloud Storage (`Firebase`):** Modify the `WorkManager` task to upload the file to GCS before calling the transcription API. This moves the workflow towards the final architecture.
+7.  **Build Persistent UI (`Room`):** Develop the user-facing list and detail screens that read data from the local Room database, which is now populated by the `WorkManager` jobs.
+
+---
+
+### **7. Risks and Mitigations**
+
+*   **Technical Challenges:**
+    *   **Risk:** Aggressive battery optimization on certain OEM Android versions (e.g., Xiaomi, OnePlus) killing the background service.
+    *   **Mitigation:** Properly implement the `ForegroundService` with the correct `foregroundServiceType` (`mediaProjection`). Guide the user to manually exempt the app from battery optimizations in their device settings. Use `WorkManager` for all non-real-time tasks, as it is designed to survive process death.
+    *   **Risk:** Some media apps may explicitly disallow audio capture.
+    *   **Mitigation:** Acknowledge this as a known limitation. The primary use cases (YouTube, podcasts) are confirmed to work. The app should gracefully handle capture failures and inform the user if an app is blocking the audio stream.
+
+*   **Figuring out the MVP:**
+    *   **Risk:** Scope creep; attempting to add features like summarization, multiple cloud providers, or advanced editing tools too early.
+    *   **Mitigation:** Adhere strictly to the defined MVP scope: "Capture -> Transcribe -> View Locally." All other features must be deferred to later phases. The goal is to get the core utility into a usable state as quickly as possible.
+
+*   **Resource Constraints:**
+    *   **Risk:** Cloud API and storage costs could become a factor with heavy use.
+    *   **Mitigation:** The choice of the OpenAI Whisper API is a primary mitigation due to its low cost. The app will not store raw audio in the cloud by default (only transcripts) to minimize storage costs. For future versions, a usage dashboard can be implemented to help users monitor their consumption.
+    *   **Risk:** Battery consumption from continuous audio processing.
+    *   **Mitigation:** Ensure the recording service is only active when the user has explicitly started it. Perform CPU-intensive work like file handling and network requests within `WorkManager`, which allows the OS to schedule it efficiently.
+
+---
+
+### **8. Appendix**
+
+*   **Key APIs and Documentation:**
+    *   Android AudioPlaybackCapture API: [https://developer.android.com/media/platform/audio-playback-capture](https://developer.android.com/media/platform/audio-playback-capture)
+    *   Android Foreground Services: [https://developer.android.com/guide/components/foreground-services](https://developer.android.com/guide/components/foreground-services)
+    *   Android WorkManager: [https://developer.android.com/topic/libraries/architecture/workmanager](https://developer.android.com/topic/libraries/architecture/workmanager)
+    *   Android Room Persistence Library: [https://developer.android.com/training/data-storage/room](https://developer.android.com/training/data-storage/room)
+    *   Firebase Storage for Android: [https://firebase.google.com/docs/storage/android/upload-files](https://firebase.google.com/docs/storage/android/upload-files)
+    *   OpenAI Audio Transcription API: [https://platform.openai.com/docs/api-reference/audio](https://platform.openai.com/docs/api-reference/audio)

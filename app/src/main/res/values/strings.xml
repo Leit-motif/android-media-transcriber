@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Audioscribe</string>
+    <string name="start_recording">Start Recording</string>
+    <string name="stop_recording">Stop Recording</string>
+    <string name="recording_in_progress">Recording in progress…</string>
+    <string name="transcription_complete">Transcription complete</string>
+    <string name="permission_required">Permission required</string>
+    <string name="audio_permission_rationale">Audioscribe needs audio recording permission to capture system audio for transcription.</string>
+    <string name="notification_permission_rationale">Audioscribe needs notification permission to show recording status.</string>
+</resources>
