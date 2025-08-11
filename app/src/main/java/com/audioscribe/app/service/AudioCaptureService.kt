@@ -14,8 +14,11 @@ import android.media.AudioRecord
 import android.media.projection.MediaProjection
 import android.media.projection.MediaProjectionManager
 import android.os.Build
+import android.os.Handler
 import android.os.IBinder
+import android.os.Looper
 import android.util.Log
+import android.widget.Toast
 import androidx.annotation.RequiresApi
 import androidx.core.app.NotificationCompat
 import androidx.lifecycle.LifecycleService
@@ -104,6 +107,15 @@ class AudioCaptureService : LifecycleService() {
         }
         
         try {
+            // Check API level
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+                Log.e(TAG, "AudioPlaybackCapture requires Android 10+ (API 29+), current: ${Build.VERSION.SDK_INT}")
+                stopSelf()
+                return
+            }
+            
+            Log.d(TAG, "Starting audio capture on API ${Build.VERSION.SDK_INT}")
+            
             // Initialize MediaProjection
             val mediaProjectionManager = getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
             mediaProjection = mediaProjectionManager.getMediaProjection(resultCode, resultData)
@@ -118,11 +130,14 @@ class AudioCaptureService : LifecycleService() {
             createOutputFile()
             
             // Set up AudioPlaybackCaptureConfiguration
+            Log.d(TAG, "Creating AudioPlaybackCaptureConfiguration")
             val config = AudioPlaybackCaptureConfiguration.Builder(mediaProjection!!)
                 .addMatchingUsage(AudioAttributes.USAGE_MEDIA)
                 .addMatchingUsage(AudioAttributes.USAGE_GAME)
                 .addMatchingUsage(AudioAttributes.USAGE_UNKNOWN)
                 .build()
+                
+            Log.d(TAG, "AudioPlaybackCaptureConfiguration created successfully")
             
             // Calculate buffer size
             val bufferSize = AudioRecord.getMinBufferSize(SAMPLE_RATE, CHANNEL_CONFIG, AUDIO_FORMAT)
@@ -139,14 +154,20 @@ class AudioCaptureService : LifecycleService() {
                 .setChannelMask(CHANNEL_CONFIG)
                 .build()
             
+            Log.d(TAG, "Creating AudioRecord with buffer size: ${bufferSize * 2}")
+            
             audioRecord = AudioRecord.Builder()
                 .setAudioFormat(audioFormat)
                 .setBufferSizeInBytes(bufferSize * 2) // Double buffer for safety
                 .setAudioPlaybackCaptureConfig(config)
                 .build()
             
-            if (audioRecord?.state != AudioRecord.STATE_INITIALIZED) {
-                Log.e(TAG, "AudioRecord initialization failed")
+            val recordState = audioRecord?.state
+            Log.d(TAG, "AudioRecord state: $recordState")
+            
+            if (recordState != AudioRecord.STATE_INITIALIZED) {
+                Log.e(TAG, "AudioRecord initialization failed. State: $recordState")
+                Log.e(TAG, "Expected: ${AudioRecord.STATE_INITIALIZED}")
                 stopSelf()
                 return
             }
@@ -165,8 +186,13 @@ class AudioCaptureService : LifecycleService() {
             
             Log.i(TAG, "Audio capture started successfully")
             
+        } catch (e: SecurityException) {
+            Log.e(TAG, "Security exception - MediaProjection permission denied or AudioPlaybackCapture not supported", e)
+            showErrorToast("Audio capture not supported on this device")
+            stopSelf()
         } catch (e: Exception) {
             Log.e(TAG, "Failed to start audio capture", e)
+            showErrorToast("Failed to start recording: ${e.message}")
             stopSelf()
         }
     }
@@ -239,10 +265,32 @@ class AudioCaptureService : LifecycleService() {
     }
     
     private fun createOutputFile() {
-        val timestamp = System.currentTimeMillis()
-        val fileName = "audioscribe_$timestamp.wav"
-        outputFile = File(getExternalFilesDir(null), fileName)
-        Log.d(TAG, "Output file: ${outputFile?.absolutePath}")
+        try {
+            val timestamp = System.currentTimeMillis()
+            val fileName = "audioscribe_$timestamp.wav"
+            val outputDir = getExternalFilesDir(null) ?: filesDir
+            
+            // Ensure directory exists
+            if (!outputDir.exists()) {
+                outputDir.mkdirs()
+            }
+            
+            outputFile = File(outputDir, fileName)
+            Log.d(TAG, "Output file created: ${outputFile?.absolutePath}")
+            
+            // Test if we can write to the file
+            outputFile?.let { file ->
+                val parentFile = file.parentFile
+                if (parentFile != null && !parentFile.canWrite()) {
+                    Log.e(TAG, "Cannot write to output directory: ${parentFile.absolutePath}")
+                    throw SecurityException("Cannot write to output directory")
+                }
+            }
+            
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to create output file", e)
+            throw e
+        }
     }
     
     private fun writeWavHeader(fos: FileOutputStream, dataSize: Int) {
@@ -348,7 +396,14 @@ class AudioCaptureService : LifecycleService() {
         }
     }
     
-    override fun onBind(intent: Intent?): IBinder? = null
+    override fun onBind(intent: Intent): IBinder? = null
+    
+    private fun showErrorToast(message: String) {
+        // Post to main thread to show toast
+        Handler(Looper.getMainLooper()).post {
+            Toast.makeText(this, message, Toast.LENGTH_LONG).show()
+        }
+    }
     
     override fun onDestroy() {
         super.onDestroy()
