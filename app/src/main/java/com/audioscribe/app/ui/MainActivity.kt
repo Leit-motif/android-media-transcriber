@@ -1,6 +1,8 @@
 package com.audioscribe.app.ui
 
 import android.app.Activity
+import android.app.ActivityManager
+import android.content.Context
 import android.content.Intent
 import android.os.Build
 import android.os.Bundle
@@ -101,6 +103,37 @@ class MainActivity : ComponentActivity() {
                 )
             }
         }
+    }
+    
+    override fun onResume() {
+        super.onResume()
+        // Check if service is running and sync state
+        syncRecordingState()
+    }
+    
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        // Handle when activity is brought to front from notification
+        syncRecordingState()
+    }
+    
+    private fun syncRecordingState() {
+        val serviceRunning = isServiceRunning(AudioCaptureService::class.java)
+        if (serviceRunning != isRecording) {
+            isRecording = serviceRunning
+            Log.i(TAG, "Synced recording state: isRecording = $isRecording")
+        }
+    }
+    
+    @Suppress("DEPRECATION")
+    private fun isServiceRunning(serviceClass: Class<*>): Boolean {
+        val manager = getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
+        for (service in manager.getRunningServices(Integer.MAX_VALUE)) {
+            if (serviceClass.name == service.service.className) {
+                return true
+            }
+        }
+        return false
     }
     
     private fun requestPermissions() {
