@@ -28,11 +28,13 @@ An Android application that captures system audio and transcribes it using AI, c
 ## Setup
 1. Clone the repository
 2. Open in Android Studio
-3. Add your API keys to `local.properties`:
-   ```
-   OPENAI_API_KEY=your_key_here
+3. Add your OpenAI API key to `app/src/main/java/com/audioscribe/app/utils/ApiConstants.kt`:
+   ```kotlin
+   const val OPENAI_API_KEY = "your_openai_api_key_here"
    ```
 4. Build and run
+
+**Note**: The current API key storage is temporary for proof of concept. Task #11 will implement secure API key management.
 
 ## Project Status
 ✅ **Task #1**: Project Setup and Dependency Management - **COMPLETE**
@@ -56,7 +58,15 @@ An Android application that captures system audio and transcribes it using AI, c
 - Processing state indicators
 - Professional user experience
 
-**Next**: Task #4 - Implement Transcription API Integration
+✅ **Task #4**: Implement Transcription API Integration (Proof of Concept) - **COMPLETE**
+- Retrofit interface for OpenAI Whisper API
+- Data models for API request/response
+- Audio file upload functionality
+- Automatic transcription after recording stops
+- Error handling and user feedback
+- API key management (temporary hardcoded solution)
+
+**Next**: Task #5 - Display Transcription Results
 
 ## Development
 This project follows the PRD outlined in `.taskmaster/docs/prd.txt` and uses Task Master for project management.

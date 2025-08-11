@@ -24,6 +24,7 @@ import androidx.annotation.RequiresApi
 import androidx.core.app.NotificationCompat
 import androidx.lifecycle.LifecycleService
 import com.audioscribe.app.R
+import com.audioscribe.app.data.repository.TranscriptionRepository
 import com.audioscribe.app.ui.MainActivity
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -68,6 +69,7 @@ class AudioCaptureService : LifecycleService() {
     private val serviceScope = CoroutineScope(Dispatchers.IO + Job())
     
     private var outputFile: File? = null
+    private val transcriptionRepository = TranscriptionRepository()
     
     override fun onCreate() {
         super.onCreate()
@@ -282,6 +284,9 @@ class AudioCaptureService : LifecycleService() {
                 updateWavHeader(outputFile, totalBytesWritten)
                 
                 Log.i(TAG, "Audio recording saved: ${outputFile.absolutePath}, size: $totalBytesWritten bytes")
+                
+                // Start transcription process
+                startTranscription(outputFile)
             }
         } catch (e: IOException) {
             Log.e(TAG, "Error writing audio data", e)
@@ -557,5 +562,98 @@ class AudioCaptureService : LifecycleService() {
         }
         
         return builder.build()
+    }
+    
+    /**
+     * Start transcription process for the recorded audio file
+     */
+    private fun startTranscription(audioFile: File) {
+        serviceScope.launch {
+            try {
+                Log.d(TAG, "Starting transcription for file: ${audioFile.name}")
+                
+                // Update notification to show transcription in progress
+                updateNotificationForTranscription(isProcessing = true)
+                
+                // Perform transcription
+                val result = transcriptionRepository.transcribeAudio(audioFile)
+                
+                result.onSuccess { transcriptionText ->
+                    Log.i(TAG, "Transcription completed successfully")
+                    Log.d(TAG, "Transcription text: ${transcriptionText.take(100)}...")
+                    
+                    // Update notification to show transcription completed
+                    updateNotificationForTranscription(isProcessing = false, hasResult = true)
+                    
+                    // TODO: Save transcription to database or send to MainActivity
+                    // For now, just show a toast with the result
+                    showTranscriptionResult(transcriptionText)
+                    
+                }.onFailure { error ->
+                    Log.e(TAG, "Transcription failed: ${error.message}", error)
+                    
+                    // Update notification to show transcription failed
+                    updateNotificationForTranscription(isProcessing = false, hasResult = false)
+                    
+                    // Show error toast
+                    showErrorToast("Transcription failed: ${error.message}")
+                }
+                
+            } catch (e: Exception) {
+                Log.e(TAG, "Error during transcription process", e)
+                updateNotificationForTranscription(isProcessing = false, hasResult = false)
+                showErrorToast("Transcription error: ${e.message}")
+            }
+        }
+    }
+    
+    /**
+     * Update notification to show transcription status
+     */
+    private fun updateNotificationForTranscription(isProcessing: Boolean, hasResult: Boolean = false) {
+        val intent = Intent(this, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
+        }
+        val pendingIntent = PendingIntent.getActivity(
+            this, 0, intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        
+        val contentText = when {
+            isProcessing -> "Transcribing audio..."
+            hasResult -> "Transcription completed - Tap to view"
+            else -> "Transcription failed"
+        }
+        
+        val notification = NotificationCompat.Builder(this, CHANNEL_ID)
+            .setContentTitle("Audioscribe")
+            .setContentText(contentText)
+            .setSmallIcon(R.drawable.ic_notification)
+            .setContentIntent(pendingIntent)
+            .setOngoing(false) // Allow dismissal after transcription
+            .setSilent(true)
+            .build()
+        
+        val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        notificationManager.notify(NOTIFICATION_ID, notification)
+    }
+    
+    /**
+     * Show transcription result to user
+     */
+    private fun showTranscriptionResult(transcriptionText: String) {
+        // Post to main thread to show toast with first part of transcription
+        Handler(Looper.getMainLooper()).post {
+            val preview = if (transcriptionText.length > 100) {
+                "${transcriptionText.take(100)}..."
+            } else {
+                transcriptionText
+            }
+            Toast.makeText(this, "Transcription: $preview", Toast.LENGTH_LONG).show()
+        }
+        
+        // TODO: Send transcription to MainActivity or save to database
+        // For now, we'll just log it
+        Log.i(TAG, "Full transcription result: $transcriptionText")
     }
 }

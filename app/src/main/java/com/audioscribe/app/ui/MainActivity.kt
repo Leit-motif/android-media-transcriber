@@ -24,6 +24,7 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.audioscribe.app.service.AudioCaptureService
 import com.audioscribe.app.ui.theme.AudioscribeTheme
+import com.audioscribe.app.utils.ApiConstants
 import com.audioscribe.app.utils.PermissionManager
 
 /**
@@ -168,20 +169,18 @@ class MainActivity : ComponentActivity() {
         }
         startService(intent)
         isRecording = false
-        isProcessing = true
         
-        // Simulate transcription processing for now
-        // In the real implementation, this would be handled by the transcription service
-        simulateTranscriptionProcessing()
-    }
-    
-    private fun simulateTranscriptionProcessing() {
-        // Simulate processing delay
-        android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
-            transcriptionResult = "Audio recording completed and saved.\n\nTranscription will be available once the transcription service is implemented in Task #4.\n\nRecorded file: audioscribe_${System.currentTimeMillis()}.wav"
-            isProcessing = false
-            Toast.makeText(this, "Recording saved successfully", Toast.LENGTH_SHORT).show()
-        }, 2000)
+        // Check if API key is configured
+        if (!ApiConstants.isApiKeyConfigured()) {
+            Toast.makeText(
+                this, 
+                "OpenAI API key not configured. Please add your API key to ApiConstants.kt to enable transcription.", 
+                Toast.LENGTH_LONG
+            ).show()
+        } else {
+            isProcessing = true
+            Toast.makeText(this, "Recording stopped. Transcription starting...", Toast.LENGTH_SHORT).show()
+        }
     }
     
     private fun clearResults() {
