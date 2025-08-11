@@ -1,0 +1,21 @@
+R_DEF: Internal format may change without notice
+local
+color black
+color splash_background
+color white
+drawable ic_notification
+mipmap ic_launcher
+mipmap ic_launcher_round
+string app_name
+string audio_permission_rationale
+string notification_permission_rationale
+string permission_required
+string recording_in_progress
+string start_recording
+string stop_recording
+string transcription_complete
+style Base.Theme.Audioscribe
+style Theme.Audioscribe
+style Theme.Audioscribe.Splash
+xml backup_rules
+xml data_extraction_rules

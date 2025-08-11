@@ -72,6 +72,8 @@ class AudioCaptureService : LifecycleService() {
     override fun onCreate() {
         super.onCreate()
         createNotificationChannel()
+        // CRITICAL: Start foreground immediately to prevent ForegroundServiceDidNotStartInTimeException
+        startForeground(NOTIFICATION_ID, createNotification(isRecording = false, isMicrophoneMode = false))
         Log.d(TAG, "AudioCaptureService created")
     }
     
@@ -113,7 +115,8 @@ class AudioCaptureService : LifecycleService() {
             // Check API level
             if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
                 Log.e(TAG, "AudioPlaybackCapture requires Android 10+ (API 29+), current: ${Build.VERSION.SDK_INT}")
-                stopSelf()
+                Log.i(TAG, "Falling back to microphone recording")
+                startMicrophoneRecording()
                 return
             }
             
@@ -125,7 +128,8 @@ class AudioCaptureService : LifecycleService() {
             
             if (mediaProjection == null) {
                 Log.e(TAG, "Failed to create MediaProjection")
-                stopSelf()
+                Log.i(TAG, "Falling back to microphone recording")
+                startMicrophoneRecording()
                 return
             }
             
@@ -146,7 +150,8 @@ class AudioCaptureService : LifecycleService() {
             val bufferSize = AudioRecord.getMinBufferSize(SAMPLE_RATE, CHANNEL_CONFIG, AUDIO_FORMAT)
             if (bufferSize == AudioRecord.ERROR || bufferSize == AudioRecord.ERROR_BAD_VALUE) {
                 Log.e(TAG, "Invalid buffer size: $bufferSize")
-                stopSelf()
+                Log.i(TAG, "Falling back to microphone recording")
+                startMicrophoneRecording()
                 return
             }
             
@@ -171,12 +176,28 @@ class AudioCaptureService : LifecycleService() {
             if (recordState != AudioRecord.STATE_INITIALIZED) {
                 Log.e(TAG, "AudioRecord initialization failed. State: $recordState")
                 Log.e(TAG, "Expected: ${AudioRecord.STATE_INITIALIZED}")
-                stopSelf()
+                Log.i(TAG, "Falling back to microphone recording")
+                startMicrophoneRecording()
                 return
             }
             
-            // Start foreground service
-            startForeground(NOTIFICATION_ID, createNotification(true))
+            // Update notification to show recording status
+            val intent = Intent(this, MainActivity::class.java)
+            val pendingIntent = PendingIntent.getActivity(
+                this, 0, intent, 
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+            
+            val notification = NotificationCompat.Builder(this, CHANNEL_ID)
+                .setContentTitle("Audio Capture")
+                .setContentText("Recording system audio...")
+                .setSmallIcon(R.drawable.ic_notification)
+                .setOngoing(true)
+                .setContentIntent(pendingIntent)
+                .build()
+            
+            val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            notificationManager.notify(NOTIFICATION_ID, notification)
             
             // Start recording
             audioRecord?.startRecording()
@@ -413,7 +434,6 @@ class AudioCaptureService : LifecycleService() {
             if (bufferSize == AudioRecord.ERROR || bufferSize == AudioRecord.ERROR_BAD_VALUE) {
                 Log.e(TAG, "Invalid buffer size for microphone: $bufferSize")
                 showErrorToast("Failed to initialize microphone recording")
-                stopSelf()
                 return
             }
             
@@ -436,12 +456,26 @@ class AudioCaptureService : LifecycleService() {
             if (recordState != AudioRecord.STATE_INITIALIZED) {
                 Log.e(TAG, "Microphone AudioRecord initialization failed. State: $recordState")
                 showErrorToast("Failed to initialize microphone")
-                stopSelf()
                 return
             }
             
-            // Start foreground service with different notification
-            startForeground(NOTIFICATION_ID, createNotification(true, true))
+            // Update notification to show microphone recording
+            val intent = Intent(this, MainActivity::class.java)
+            val pendingIntent = PendingIntent.getActivity(
+                this, 0, intent, 
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+            
+            val notification = NotificationCompat.Builder(this, CHANNEL_ID)
+                .setContentTitle("Audio Capture")
+                .setContentText("Recording from microphone...")
+                .setSmallIcon(R.drawable.ic_notification)
+                .setOngoing(true)
+                .setContentIntent(pendingIntent)
+                .build()
+            
+            val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            notificationManager.notify(NOTIFICATION_ID, notification)
             
             // Start recording
             audioRecord?.startRecording()
@@ -458,7 +492,6 @@ class AudioCaptureService : LifecycleService() {
         } catch (e: Exception) {
             Log.e(TAG, "Failed to start microphone recording", e)
             showErrorToast("Recording failed: ${e.message}")
-            stopSelf()
         }
     }
 

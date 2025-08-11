@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="black">#FF000000</color>
+    <color name="splash_background">#FF6200EE</color>
+    <color name="white">#FFFFFFFF</color>
+    <string name="app_name">Audioscribe</string>
+    <string name="audio_permission_rationale">Audioscribe needs audio recording permission to capture system audio for transcription.</string>
+    <string name="notification_permission_rationale">Audioscribe needs notification permission to show recording status.</string>
+    <string name="permission_required">Permission required</string>
+    <string name="recording_in_progress">Recording in progress…</string>
+    <string name="start_recording">Start Recording</string>
+    <string name="stop_recording">Stop Recording</string>
+    <string name="transcription_complete">Transcription complete</string>
+    <style name="Base.Theme.Audioscribe" parent="Theme.Material3.DayNight.NoActionBar">
+        
+        
+    </style>
+    <style name="Theme.Audioscribe" parent="Base.Theme.Audioscribe"/>
+    <style name="Theme.Audioscribe.Splash" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenBackground">@color/splash_background</item>
+        <item name="windowSplashScreenAnimatedIcon">@drawable/ic_notification</item>
+        <item name="postSplashScreenTheme">@style/Theme.Audioscribe</item>
+    </style>
+</resources>
