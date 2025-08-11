@@ -11,6 +11,10 @@ node_modules/
 
 # Environment variables
 .env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
 
 # Editor directories and files
 .idea
@@ -23,8 +27,48 @@ node_modules/
 
 # OS specific
 .DS_Store
+Thumbs.db
+
+# Android specific
+*.iml
+.gradle
+/local.properties
+/.idea
+.DS_Store
+/build
+/captures
+.externalNativeBuild
+.cxx
+local.properties
+
+# Build outputs
+build/
+app/build/
+.gradle/
+.kotlin/
 
 # Task files
 tasks.json
 tasks/
 .cursor/mcp.json
+
+# API Keys - Security sensitive
+app/src/main/java/com/audioscribe/app/utils/ApiConstants.kt
+**/ApiConstants.kt
+**/api_keys.*
+**/secrets.*
+
+# Keystore files
+*.jks
+*.keystore
+*.p12
+*.pfx
+
+# Local configuration
+local.properties
+gradle.properties.local
+
+# Generated files
+**/generated/
+**/tmp/
+**/temp/
