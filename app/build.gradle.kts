@@ -46,6 +46,7 @@ android {
 
 dependencies {
     implementation(libs.androidx.core.ktx)
+    implementation(libs.androidx.core.splashscreen)
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.appcompat)
@@ -86,8 +87,7 @@ dependencies {
     // implementation(libs.firebase.storage)
     // implementation(libs.firebase.auth)
 
-    // Permissions
-    implementation(libs.accompanist.permissions)
+    // Permissions - Using built-in ActivityResultContracts instead of Accompanist
 
     // Media/Audio
     implementation(libs.androidx.media3.exoplayer)

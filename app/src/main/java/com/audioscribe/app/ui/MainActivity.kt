@@ -118,9 +118,15 @@ class MainActivity : ComponentActivity() {
             return
         }
         
-        // Request MediaProjection permission
-        val mediaProjectionIntent = PermissionManager.getMediaProjectionIntent(this)
-        mediaProjectionLauncher.launch(mediaProjectionIntent)
+        // Check if device supports AudioPlaybackCapture
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            // Request MediaProjection permission for system audio capture
+            val mediaProjectionIntent = PermissionManager.getMediaProjectionIntent(this)
+            mediaProjectionLauncher.launch(mediaProjectionIntent)
+        } else {
+            // Fallback to microphone recording for older devices
+            startMicrophoneRecording()
+        }
     }
     
     private fun stopRecording() {
@@ -162,6 +168,20 @@ class MainActivity : ComponentActivity() {
         
         Log.i(TAG, "Audio capture service started")
         Toast.makeText(this, "Recording started", Toast.LENGTH_SHORT).show()
+    }
+    
+    private fun startMicrophoneRecording() {
+        val intent = Intent(this, AudioCaptureService::class.java).apply {
+            action = AudioCaptureService.ACTION_START_CAPTURE
+            // No MediaProjection data needed for microphone mode
+            putExtra(AudioCaptureService.EXTRA_RESULT_CODE, 0)
+        }
+        
+        startForegroundService(intent)
+        isRecording = true
+        
+        Log.i(TAG, "Microphone recording service started")
+        Toast.makeText(this, "Recording from microphone", Toast.LENGTH_SHORT).show()
     }
     
     private fun showPermissionRationale() {

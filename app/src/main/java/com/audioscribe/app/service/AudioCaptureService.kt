@@ -11,6 +11,7 @@ import android.media.AudioAttributes
 import android.media.AudioFormat
 import android.media.AudioPlaybackCaptureConfiguration
 import android.media.AudioRecord
+import android.media.MediaRecorder
 import android.media.projection.MediaProjection
 import android.media.projection.MediaProjectionManager
 import android.os.Build
@@ -83,10 +84,12 @@ class AudioCaptureService : LifecycleService() {
                 val resultData = intent.getParcelableExtra<Intent>(EXTRA_RESULT_DATA)
                 
                 if (resultCode != 0 && resultData != null) {
+                    // Try system audio capture first
                     startAudioCapture(resultCode, resultData)
                 } else {
-                    Log.e(TAG, "Invalid MediaProjection data")
-                    stopSelf()
+                    // Fallback to microphone recording
+                    Log.i(TAG, "No MediaProjection data provided, using microphone recording")
+                    startMicrophoneRecording()
                 }
             }
             ACTION_STOP_CAPTURE -> {
@@ -188,12 +191,12 @@ class AudioCaptureService : LifecycleService() {
             
         } catch (e: SecurityException) {
             Log.e(TAG, "Security exception - MediaProjection permission denied or AudioPlaybackCapture not supported", e)
-            showErrorToast("Audio capture not supported on this device")
-            stopSelf()
+            Log.i(TAG, "Falling back to microphone recording")
+            startMicrophoneRecording()
         } catch (e: Exception) {
             Log.e(TAG, "Failed to start audio capture", e)
-            showErrorToast("Failed to start recording: ${e.message}")
-            stopSelf()
+            Log.i(TAG, "Falling back to microphone recording")
+            startMicrophoneRecording()
         }
     }
     
@@ -398,6 +401,67 @@ class AudioCaptureService : LifecycleService() {
     
     override fun onBind(intent: Intent): IBinder? = null
     
+    private fun startMicrophoneRecording() {
+        try {
+            Log.i(TAG, "Starting microphone recording as fallback")
+            
+            // Create output file
+            createOutputFile()
+            
+            // Calculate buffer size
+            val bufferSize = AudioRecord.getMinBufferSize(SAMPLE_RATE, CHANNEL_CONFIG, AUDIO_FORMAT)
+            if (bufferSize == AudioRecord.ERROR || bufferSize == AudioRecord.ERROR_BAD_VALUE) {
+                Log.e(TAG, "Invalid buffer size for microphone: $bufferSize")
+                showErrorToast("Failed to initialize microphone recording")
+                stopSelf()
+                return
+            }
+            
+            // Create AudioRecord for microphone
+            val audioFormat = AudioFormat.Builder()
+                .setEncoding(AUDIO_FORMAT)
+                .setSampleRate(SAMPLE_RATE)
+                .setChannelMask(CHANNEL_CONFIG)
+                .build()
+            
+            audioRecord = AudioRecord.Builder()
+                .setAudioSource(MediaRecorder.AudioSource.MIC)
+                .setAudioFormat(audioFormat)
+                .setBufferSizeInBytes(bufferSize * 2)
+                .build()
+            
+            val recordState = audioRecord?.state
+            Log.d(TAG, "Microphone AudioRecord state: $recordState")
+            
+            if (recordState != AudioRecord.STATE_INITIALIZED) {
+                Log.e(TAG, "Microphone AudioRecord initialization failed. State: $recordState")
+                showErrorToast("Failed to initialize microphone")
+                stopSelf()
+                return
+            }
+            
+            // Start foreground service with different notification
+            startForeground(NOTIFICATION_ID, createNotification(true, true))
+            
+            // Start recording
+            audioRecord?.startRecording()
+            isRecording = true
+            
+            // Start recording coroutine
+            recordingJob = serviceScope.launch {
+                recordAudio()
+            }
+            
+            Log.i(TAG, "Microphone recording started successfully")
+            showErrorToast("Using microphone instead of system audio")
+            
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to start microphone recording", e)
+            showErrorToast("Recording failed: ${e.message}")
+            stopSelf()
+        }
+    }
+
     private fun showErrorToast(message: String) {
         // Post to main thread to show toast
         Handler(Looper.getMainLooper()).post {
@@ -427,7 +491,7 @@ class AudioCaptureService : LifecycleService() {
         }
     }
     
-    private fun createNotification(isRecording: Boolean = false): Notification {
+    private fun createNotification(isRecording: Boolean = false, isMicrophoneMode: Boolean = false): Notification {
         val intent = Intent(this, MainActivity::class.java)
         val pendingIntent = PendingIntent.getActivity(
             this, 0, intent, 
@@ -450,7 +514,8 @@ class AudioCaptureService : LifecycleService() {
             .setSilent(true)
         
         if (isRecording) {
-            builder.setContentText("Recording audio...")
+            val contentText = if (isMicrophoneMode) "Recording from microphone..." else "Recording audio..."
+            builder.setContentText(contentText)
                 .addAction(R.drawable.ic_notification, "Stop", stopPendingIntent)
         } else {
             builder.setContentText("Starting audio capture...")
