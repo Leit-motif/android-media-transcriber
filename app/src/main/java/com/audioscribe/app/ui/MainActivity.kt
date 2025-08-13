@@ -33,7 +33,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.text.selection.SelectionContainer
 import android.content.ClipboardManager
 import android.content.ClipData
-import android.content.Intent
 import com.audioscribe.app.service.AudioCaptureService
 import com.audioscribe.app.ui.theme.AudioscribeTheme
 import com.audioscribe.app.utils.ApiKeyStore

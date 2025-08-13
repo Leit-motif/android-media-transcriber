@@ -53,6 +53,7 @@ class AudioCaptureService : LifecycleService() {
         private const val SAMPLE_RATE = 44100
         private const val CHANNEL_CONFIG = AudioFormat.CHANNEL_IN_STEREO
         private const val AUDIO_FORMAT = AudioFormat.ENCODING_PCM_16BIT
+		private const val CHUNK_SECONDS = 30 // Fixed-length chunk duration (demo-friendly)
         
         // Intent extras
         const val EXTRA_RESULT_CODE = "EXTRA_RESULT_CODE"
@@ -256,48 +257,87 @@ class AudioCaptureService : LifecycleService() {
         stopSelf()
     }
     
-    private suspend fun recordAudio() = withContext(Dispatchers.IO) {
-        val audioRecord = this@AudioCaptureService.audioRecord ?: return@withContext
-        val outputFile = this@AudioCaptureService.outputFile ?: return@withContext
-        
-        val bufferSize = AudioRecord.getMinBufferSize(SAMPLE_RATE, CHANNEL_CONFIG, AUDIO_FORMAT)
-        val audioBuffer = ByteArray(bufferSize)
-        
-        try {
-            FileOutputStream(outputFile).use { fos ->
-                // Write WAV header (will be updated later with correct size)
-                writeWavHeader(fos, 0)
-                
-                var totalBytesWritten = 0
-                
-                while (isRecording) {
-                    val bytesRead = audioRecord.read(audioBuffer, 0, audioBuffer.size)
-                    
-                    if (bytesRead > 0) {
-                        fos.write(audioBuffer, 0, bytesRead)
-                        totalBytesWritten += bytesRead
-                    } else if (bytesRead == AudioRecord.ERROR_INVALID_OPERATION) {
-                        Log.e(TAG, "AudioRecord read error: ERROR_INVALID_OPERATION")
-                        break
-                    } else if (bytesRead == AudioRecord.ERROR_BAD_VALUE) {
-                        Log.e(TAG, "AudioRecord read error: ERROR_BAD_VALUE")
-                        break
-                    }
-                }
-                
-                // Update WAV header with correct file size
-                fos.close()
-                updateWavHeader(outputFile, totalBytesWritten)
-                
-                Log.i(TAG, "Audio recording saved: ${outputFile.absolutePath}, size: $totalBytesWritten bytes")
-                
-                // Start transcription process
-                startTranscription(outputFile)
-            }
-        } catch (e: IOException) {
-            Log.e(TAG, "Error writing audio data", e)
-        }
-    }
+	private suspend fun recordAudio() = withContext(Dispatchers.IO) {
+		val audioRecord = this@AudioCaptureService.audioRecord ?: return@withContext
+		
+		val bufferSize = AudioRecord.getMinBufferSize(SAMPLE_RATE, CHANNEL_CONFIG, AUDIO_FORMAT)
+		val audioBuffer = ByteArray(bufferSize)
+		val bytesPerSecond = SAMPLE_RATE * 2 * 2 // sampleRate * channels(2) * bytesPerSample(2)
+		val maxChunkBytes = bytesPerSecond * CHUNK_SECONDS
+		
+		var currentFile: File? = null
+		var fos: FileOutputStream? = null
+		var chunkBytesWritten = 0
+		
+		fun openNewChunk() {
+			try {
+				// Always create a fresh file per chunk
+				createOutputFile()
+				currentFile = this@AudioCaptureService.outputFile
+				fos = FileOutputStream(currentFile!!)
+				writeWavHeader(fos!!, 0)
+				chunkBytesWritten = 0
+				Log.d(TAG, "Opened new chunk: ${currentFile?.name}")
+			} catch (e: Exception) {
+				Log.e(TAG, "Failed to open new chunk", e)
+				throw e
+			}
+		}
+		
+		fun closeAndProcessCurrentChunk() {
+			try {
+				fos?.close()
+				val file = currentFile
+				if (file != null) {
+					if (chunkBytesWritten > 0) {
+						updateWavHeader(file, chunkBytesWritten)
+						Log.i(TAG, "Chunk saved: ${file.absolutePath}, size: $chunkBytesWritten bytes")
+						startTranscription(file)
+					} else {
+						// Empty chunk (e.g., stopped immediately). Clean up the placeholder file.
+						if (file.exists()) file.delete()
+						Log.d(TAG, "Deleted empty chunk: ${file.absolutePath}")
+					}
+				}
+			} catch (e: Exception) {
+				Log.e(TAG, "Error closing/processing chunk", e)
+			}
+		}
+		
+		try {
+			// Initialize first chunk
+			if (this@AudioCaptureService.outputFile == null) {
+				createOutputFile()
+			}
+			openNewChunk()
+			
+			while (isRecording) {
+				val bytesRead = audioRecord.read(audioBuffer, 0, audioBuffer.size)
+				if (bytesRead > 0) {
+					fos?.write(audioBuffer, 0, bytesRead)
+					chunkBytesWritten += bytesRead
+					if (chunkBytesWritten >= maxChunkBytes) {
+						// Rotate file
+						closeAndProcessCurrentChunk()
+						openNewChunk()
+					}
+				} else if (bytesRead == AudioRecord.ERROR_INVALID_OPERATION) {
+					Log.e(TAG, "AudioRecord read error: ERROR_INVALID_OPERATION")
+					break
+				} else if (bytesRead == AudioRecord.ERROR_BAD_VALUE) {
+					Log.e(TAG, "AudioRecord read error: ERROR_BAD_VALUE")
+					break
+				}
+			}
+			
+			// Finalize any remaining bytes in the last chunk
+			closeAndProcessCurrentChunk()
+		} catch (e: IOException) {
+			Log.e(TAG, "Error writing audio data", e)
+		} finally {
+			try { fos?.close() } catch (_: Exception) {}
+		}
+	}
     
     private fun createOutputFile() {
         try {
