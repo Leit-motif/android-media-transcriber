@@ -1,10 +1,10 @@
 {
     "logs": [
         {
-            "outputFile": "com.audioscribe.app-mergeDebugResources-70:/values-port/values-port.xml",
+            "outputFile": "com.audioscribe.app-mergeDebugResources-73:/values-port/values-port.xml",
             "map": [
                 {
-                    "source": "C:\\Users\\Rando\\.gradle\\caches\\8.12\\transforms\\7b9fb940c93aee62fe44301c2c283592\\transformed\\appcompat-1.7.0\\res\\values-port\\values-port.xml",
+                    "source": "C:\\Users\\Rando\\.gradle\\caches\\8.12\\transforms\\805385637582bb1ff96d48564eaef50a\\transformed\\appcompat-1.7.0\\res\\values-port\\values-port.xml",
                     "from": {
                         "startLines": "2",
                         "startColumns": "4",

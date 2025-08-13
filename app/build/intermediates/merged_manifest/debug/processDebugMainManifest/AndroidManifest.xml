@@ -39,6 +39,7 @@
         android:label="@string/app_name"
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
+        android:testOnly="true"
         android:theme="@style/Theme.Audioscribe" >
 
         <!-- Main Activity -->
@@ -53,6 +54,12 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!-- Settings Activity -->
+        <activity
+            android:name="com.audioscribe.app.ui.SettingsActivity"
+            android:exported="false"
+            android:theme="@style/Theme.Audioscribe" />
 
         <!-- Audio Capture Foreground Service -->
         <service

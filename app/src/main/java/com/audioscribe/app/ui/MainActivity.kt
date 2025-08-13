@@ -7,6 +7,8 @@ import android.content.Intent
 import android.os.Build
 import android.os.Bundle
 import android.util.Log
+import android.content.BroadcastReceiver
+import android.content.IntentFilter
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -22,9 +24,19 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.Share
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.text.selection.SelectionContainer
+import android.content.ClipboardManager
+import android.content.ClipData
+import android.content.Intent
 import com.audioscribe.app.service.AudioCaptureService
 import com.audioscribe.app.ui.theme.AudioscribeTheme
-import com.audioscribe.app.utils.ApiConstants
+import com.audioscribe.app.utils.ApiKeyStore
 import com.audioscribe.app.utils.PermissionManager
 
 /**
@@ -42,6 +54,7 @@ class MainActivity : ComponentActivity() {
     private var hasPermissions by mutableStateOf(false)
     private var transcriptionResult by mutableStateOf("")
     private var isProcessing by mutableStateOf(false)
+    private var resultsReceiver: BroadcastReceiver? = null
     
     // MediaProjection permission launcher
     private val mediaProjectionLauncher = registerForActivityResult(
@@ -110,12 +123,18 @@ class MainActivity : ComponentActivity() {
         super.onResume()
         // Check if service is running and sync state
         syncRecordingState()
+        registerResultsReceiver()
     }
     
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         // Handle when activity is brought to front from notification
         syncRecordingState()
+    }
+    
+    override fun onPause() {
+        super.onPause()
+        unregisterResultsReceiver()
     }
     
     private fun syncRecordingState() {
@@ -171,10 +190,10 @@ class MainActivity : ComponentActivity() {
         isRecording = false
         
         // Check if API key is configured
-        if (!ApiConstants.isApiKeyConfigured()) {
+        if (!ApiKeyStore.isConfigured(this)) {
             Toast.makeText(
                 this, 
-                "OpenAI API key not configured. Please add your API key to ApiConstants.kt to enable transcription.", 
+                "OpenAI API key not configured. Please add it in Settings to enable transcription.", 
                 Toast.LENGTH_LONG
             ).show()
         } else {
@@ -186,6 +205,37 @@ class MainActivity : ComponentActivity() {
     private fun clearResults() {
         transcriptionResult = ""
         isProcessing = false
+    }
+
+    private fun registerResultsReceiver() {
+        if (resultsReceiver != null) return
+        resultsReceiver = object : BroadcastReceiver() {
+            override fun onReceive(context: Context?, intent: Intent?) {
+                if (intent == null) return
+                if (intent.action == AudioCaptureService.ACTION_TRANSCRIPTION_COMPLETE) {
+                    val text = intent.getStringExtra(AudioCaptureService.EXTRA_TRANSCRIPTION_TEXT)
+                    val error = intent.getStringExtra(AudioCaptureService.EXTRA_TRANSCRIPTION_ERROR)
+                    if (!text.isNullOrEmpty()) {
+                        transcriptionResult = text
+                        isProcessing = false
+                    } else if (!error.isNullOrEmpty()) {
+                        isProcessing = false
+                        Toast.makeText(this@MainActivity, "Transcription failed: $error", Toast.LENGTH_LONG).show()
+                    }
+                }
+            }
+        }
+        val filter = IntentFilter(AudioCaptureService.ACTION_TRANSCRIPTION_COMPLETE)
+        registerReceiver(resultsReceiver, filter)
+    }
+
+    private fun unregisterResultsReceiver() {
+        resultsReceiver?.let {
+            try {
+                unregisterReceiver(it)
+            } catch (_: Exception) { }
+        }
+        resultsReceiver = null
     }
     
     private fun startAudioCaptureService(resultCode: Int, data: Intent) {
@@ -226,6 +276,7 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AudioscribeScreen(
     hasPermissions: Boolean,
@@ -239,7 +290,24 @@ fun AudioscribeScreen(
 ) {
     val context = LocalContext.current
     
-    Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
+    Scaffold(
+        modifier = Modifier.fillMaxSize(),
+        topBar = {
+            TopAppBar(
+                title = { Text("Audioscribe") },
+                actions = {
+                    IconButton(onClick = {
+                        context.startActivity(Intent(context, SettingsActivity::class.java))
+                    }) {
+                        Icon(
+                            imageVector = Icons.Default.Settings,
+                            contentDescription = "Settings"
+                        )
+                    }
+                }
+            )
+        }
+    ) { innerPadding ->
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -248,14 +316,8 @@ fun AudioscribeScreen(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = if (transcriptionResult.isNotEmpty()) Arrangement.Top else Arrangement.Center
         ) {
-            Text(
-                text = "Audioscribe",
-                style = MaterialTheme.typography.headlineLarge,
-                textAlign = TextAlign.Center
-            )
-            
             Spacer(modifier = Modifier.height(16.dp))
-            
+
             Text(
                 text = "Capture and transcribe audio from other apps",
                 style = MaterialTheme.typography.bodyLarge,
@@ -370,11 +432,29 @@ fun AudioscribeScreen(
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                             
-                            if (transcriptionResult.isNotEmpty()) {
-                                TextButton(onClick = onClearResults) {
-                                    Text("Clear")
-                                }
-                            }
+						if (transcriptionResult.isNotEmpty()) {
+							Row(verticalAlignment = Alignment.CenterVertically) {
+								TextButton(onClick = onClearResults) {
+									Text("Clear")
+								}
+								IconButton(onClick = {
+									val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+									clipboard.setPrimaryClip(ClipData.newPlainText("Transcription", transcriptionResult))
+									Toast.makeText(context, "Copied", Toast.LENGTH_SHORT).show()
+								}) {
+									Icon(imageVector = Icons.Filled.ContentCopy, contentDescription = "Copy")
+								}
+								IconButton(onClick = {
+									val share = Intent(Intent.ACTION_SEND).apply {
+										type = "text/plain"
+										putExtra(Intent.EXTRA_TEXT, transcriptionResult)
+									}
+									context.startActivity(Intent.createChooser(share, "Share transcription"))
+								}) {
+									Icon(imageVector = Icons.Filled.Share, contentDescription = "Share")
+								}
+							}
+						}
                         }
                         
                         Spacer(modifier = Modifier.height(8.dp))
@@ -395,19 +475,29 @@ fun AudioscribeScreen(
                                 )
                             }
                         } else if (transcriptionResult.isNotEmpty()) {
-                            Card(
-                                modifier = Modifier.fillMaxWidth(),
-                                colors = CardDefaults.cardColors(
-                                    containerColor = MaterialTheme.colorScheme.surface
-                                )
-                            ) {
-                                Text(
-                                    text = transcriptionResult,
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    modifier = Modifier.padding(12.dp),
-                                    color = MaterialTheme.colorScheme.onSurface
-                                )
-                            }
+								val scrollState = rememberScrollState()
+								Card(
+									modifier = Modifier.fillMaxWidth(),
+									colors = CardDefaults.cardColors(
+										containerColor = MaterialTheme.colorScheme.surface
+									)
+								) {
+									Box(
+										modifier = Modifier
+											.fillMaxWidth()
+											.heightIn(max = 320.dp)
+											.verticalScroll(scrollState)
+									) {
+										SelectionContainer {
+											Text(
+												text = transcriptionResult,
+												style = MaterialTheme.typography.bodyMedium,
+												modifier = Modifier.padding(12.dp),
+												color = MaterialTheme.colorScheme.onSurface
+											)
+										}
+									}
+								}
                         }
                     }
                 }

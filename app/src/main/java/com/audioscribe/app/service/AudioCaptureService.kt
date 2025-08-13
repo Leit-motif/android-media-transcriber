@@ -25,6 +25,7 @@ import androidx.core.app.NotificationCompat
 import androidx.lifecycle.LifecycleService
 import com.audioscribe.app.R
 import com.audioscribe.app.data.repository.TranscriptionRepository
+import com.audioscribe.app.utils.ApiKeyStore
 import com.audioscribe.app.ui.MainActivity
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -56,6 +57,11 @@ class AudioCaptureService : LifecycleService() {
         // Intent extras
         const val EXTRA_RESULT_CODE = "EXTRA_RESULT_CODE"
         const val EXTRA_RESULT_DATA = "EXTRA_RESULT_DATA"
+			
+			// Transcription broadcast
+			const val ACTION_TRANSCRIPTION_COMPLETE = "ACTION_TRANSCRIPTION_COMPLETE"
+			const val EXTRA_TRANSCRIPTION_TEXT = "EXTRA_TRANSCRIPTION_TEXT"
+			const val EXTRA_TRANSCRIPTION_ERROR = "EXTRA_TRANSCRIPTION_ERROR"
         
         // Actions
         const val ACTION_START_CAPTURE = "ACTION_START_CAPTURE"
@@ -575,8 +581,15 @@ class AudioCaptureService : LifecycleService() {
                 // Update notification to show transcription in progress
                 updateNotificationForTranscription(isProcessing = true)
                 
+                // Retrieve API key
+                val apiKey = ApiKeyStore.getApiKey(this@AudioCaptureService)
+                if (apiKey.isBlank()) {
+                    updateNotificationForTranscription(isProcessing = false, hasResult = false)
+                    sendTranscriptionBroadcast(error = "OpenAI API key not configured. Set it in Settings.")
+                    return@launch
+                }
                 // Perform transcription
-                val result = transcriptionRepository.transcribeAudio(audioFile)
+                val result = transcriptionRepository.transcribeAudio(audioFile, apiKey)
                 
                 result.onSuccess { transcriptionText ->
                     Log.i(TAG, "Transcription completed successfully")
@@ -584,10 +597,9 @@ class AudioCaptureService : LifecycleService() {
                     
                     // Update notification to show transcription completed
                     updateNotificationForTranscription(isProcessing = false, hasResult = true)
-                    
-                    // TODO: Save transcription to database or send to MainActivity
-                    // For now, just show a toast with the result
-                    showTranscriptionResult(transcriptionText)
+						
+						// Broadcast transcription to UI
+						sendTranscriptionBroadcast(text = transcriptionText)
                     
                 }.onFailure { error ->
                     Log.e(TAG, "Transcription failed: ${error.message}", error)
@@ -595,14 +607,14 @@ class AudioCaptureService : LifecycleService() {
                     // Update notification to show transcription failed
                     updateNotificationForTranscription(isProcessing = false, hasResult = false)
                     
-                    // Show error toast
-                    showErrorToast("Transcription failed: ${error.message}")
+						// Broadcast error to UI
+						sendTranscriptionBroadcast(error = error.message ?: "Unknown error")
                 }
                 
             } catch (e: Exception) {
                 Log.e(TAG, "Error during transcription process", e)
                 updateNotificationForTranscription(isProcessing = false, hasResult = false)
-                showErrorToast("Transcription error: ${e.message}")
+					sendTranscriptionBroadcast(error = e.message ?: "Unknown error")
             }
         }
     }
@@ -641,19 +653,24 @@ class AudioCaptureService : LifecycleService() {
     /**
      * Show transcription result to user
      */
-    private fun showTranscriptionResult(transcriptionText: String) {
-        // Post to main thread to show toast with first part of transcription
-        Handler(Looper.getMainLooper()).post {
-            val preview = if (transcriptionText.length > 100) {
-                "${transcriptionText.take(100)}..."
-            } else {
-                transcriptionText
-            }
-            Toast.makeText(this, "Transcription: $preview", Toast.LENGTH_LONG).show()
-        }
-        
-        // TODO: Send transcription to MainActivity or save to database
-        // For now, we'll just log it
-        Log.i(TAG, "Full transcription result: $transcriptionText")
-    }
+		private fun showTranscriptionResult(transcriptionText: String) {
+			// Kept for potential future UI cues from service; prefer broadcast to Activity
+			Handler(Looper.getMainLooper()).post {
+				val preview = if (transcriptionText.length > 100) {
+					"${transcriptionText.take(100)}..."
+				} else {
+					transcriptionText
+				}
+				Toast.makeText(this, "Transcription: $preview", Toast.LENGTH_LONG).show()
+			}
+			Log.i(TAG, "Full transcription result: $transcriptionText")
+		}
+
+		private fun sendTranscriptionBroadcast(text: String? = null, error: String? = null) {
+			val intent = Intent(ACTION_TRANSCRIPTION_COMPLETE).apply {
+				text?.let { putExtra(EXTRA_TRANSCRIPTION_TEXT, it) }
+				error?.let { putExtra(EXTRA_TRANSCRIPTION_ERROR, it) }
+			}
+			sendBroadcast(intent)
+		}
 }

@@ -1,10 +1,8 @@
 package com.audioscribe.app.data.repository
 
 import android.util.Log
-import com.audioscribe.app.data.model.TranscriptionResponse
 import com.audioscribe.app.data.network.NetworkClient
 import com.audioscribe.app.data.network.WhisperApiService
-import com.audioscribe.app.utils.ApiConstants
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
@@ -32,14 +30,15 @@ class TranscriptionRepository {
      */
     suspend fun transcribeAudio(
         audioFile: File,
+        apiKey: String,
         language: String = WhisperApiService.DEFAULT_LANGUAGE
     ): Result<String> = withContext(Dispatchers.IO) {
         try {
             Log.d(TAG, "Starting transcription for file: ${audioFile.name}, size: ${audioFile.length()} bytes")
             
-            // Check if API key is configured
-            if (!ApiConstants.isApiKeyConfigured()) {
-                return@withContext Result.failure(Exception("OpenAI API key not configured. Please add your API key to ApiConstants."))
+            // Check apiKey
+            if (apiKey.isBlank()) {
+                return@withContext Result.failure(Exception("OpenAI API key not configured. Please set it in Settings."))
             }
             
             // Validate file
@@ -66,7 +65,7 @@ class TranscriptionRepository {
             val responseFormatPart = WhisperApiService.createRequestBody(WhisperApiService.DEFAULT_RESPONSE_FORMAT)
             
             // Make API call
-            val authHeader = WhisperApiService.createAuthHeader(ApiConstants.OPENAI_API_KEY)
+            val authHeader = WhisperApiService.createAuthHeader(apiKey)
             val response = whisperApiService.transcribeAudio(
                 authorization = authHeader,
                 file = filePart,

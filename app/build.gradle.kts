@@ -58,6 +58,7 @@ dependencies {
     implementation(libs.androidx.ui.graphics)
     implementation(libs.androidx.ui.tooling.preview)
     implementation(libs.androidx.material3)
+    implementation(libs.androidx.material.icons)
 
     // Room database
     implementation(libs.androidx.room.runtime)
@@ -92,6 +93,9 @@ dependencies {
     // Media/Audio
     implementation(libs.androidx.media3.exoplayer)
     implementation(libs.androidx.media3.common)
+
+    // Security
+    implementation(libs.androidx.security.crypto)
 
     // Testing
     testImplementation(libs.junit)
