@@ -34,6 +34,7 @@ import androidx.work.WorkManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -648,8 +649,8 @@ class AudioCaptureService : LifecycleService() {
             
             // Create input data for the worker
             val inputData = TranscriptionWorker.createInputData(
-                audioFilePath = audioFile.absolutePath,
-                language = "auto"
+                audioFilePath = audioFile.absolutePath
+                // language omitted for auto-detection
             )
             
             // Create and enqueue the work request
@@ -669,31 +670,46 @@ class AudioCaptureService : LifecycleService() {
             // Enqueue the work
             WorkManager.getInstance(this).enqueue(transcriptionWork)
             
-            // Observe the work result (optional - the worker will broadcast results)
-            WorkManager.getInstance(this).getWorkInfoByIdLiveData(transcriptionWork.id)
-                .observe(this) { workInfo ->
-                    if (workInfo != null && workInfo.state.isFinished) {
-                        // Work completed (success or failure)
-                        inFlightTranscriptions = (inFlightTranscriptions - 1).coerceAtLeast(0)
-                        maybeStopService()
-                        
-                        Log.d(TAG, "Transcription work completed with state: ${workInfo.state}")
-                        
-                        // The worker handles broadcasting results, but we update notification here
-                        when (workInfo.state) {
-                            androidx.work.WorkInfo.State.SUCCEEDED -> {
-                                updateNotificationForTranscription(isProcessing = false, hasResult = true)
-                            }
-                            androidx.work.WorkInfo.State.FAILED -> {
-                                updateNotificationForTranscription(isProcessing = false, hasResult = false)
-                            }
-                            else -> {
-                                // Other states (CANCELLED, etc.)
-                                updateNotificationForTranscription(isProcessing = false, hasResult = false)
-                            }
+            // Track work completion using coroutines instead of LiveData observers
+            // This avoids lifecycle issues with Service context
+            CoroutineScope(Dispatchers.Main).launch {
+                try {
+                    // Poll for work completion
+                    val workManager = WorkManager.getInstance(this@AudioCaptureService)
+                    var workInfo = workManager.getWorkInfoById(transcriptionWork.id).get()
+                    
+                    while (workInfo != null && !workInfo.state.isFinished) {
+                        delay(500) // Check every 500ms
+                        workInfo = workManager.getWorkInfoById(transcriptionWork.id).get()
+                    }
+                    
+                    // Work completed (success or failure)
+                    inFlightTranscriptions = (inFlightTranscriptions - 1).coerceAtLeast(0)
+                    
+                    Log.d(TAG, "Transcription work completed with state: ${workInfo?.state}")
+                    
+                    // The worker handles broadcasting results, but we update notification here
+                    when (workInfo?.state) {
+                        androidx.work.WorkInfo.State.SUCCEEDED -> {
+                            updateNotificationForTranscription(isProcessing = false, hasResult = true)
+                        }
+                        androidx.work.WorkInfo.State.FAILED -> {
+                            updateNotificationForTranscription(isProcessing = false, hasResult = false)
+                        }
+                        else -> {
+                            // Other states (CANCELLED, etc.)
+                            updateNotificationForTranscription(isProcessing = false, hasResult = false)
                         }
                     }
+                    
+                    maybeStopService()
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error monitoring transcription work", e)
+                    inFlightTranscriptions = (inFlightTranscriptions - 1).coerceAtLeast(0)
+                    updateNotificationForTranscription(isProcessing = false, hasResult = false)
+                    maybeStopService()
                 }
+            }
             
             Log.i(TAG, "Transcription work enqueued successfully for file: ${audioFile.name}")
             

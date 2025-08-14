@@ -10,6 +10,7 @@ import androidx.work.ListenableWorker
 import com.audioscribe.app.data.repository.TranscriptionRepository
 import com.audioscribe.app.service.AudioCaptureService
 import com.audioscribe.app.utils.ApiKeyStore
+import com.audioscribe.app.utils.FileManager
 import java.io.File
 import java.net.SocketTimeoutException
 import java.net.UnknownHostException
@@ -47,11 +48,16 @@ class TranscriptionWorker(
         /**
          * Create input data for the transcription worker
          */
-        fun createInputData(audioFilePath: String, language: String = "auto"): Data {
-            return Data.Builder()
+        fun createInputData(audioFilePath: String, language: String? = null): Data {
+            val builder = Data.Builder()
                 .putString(KEY_AUDIO_FILE_PATH, audioFilePath)
-                .putString(KEY_LANGUAGE, language)
-                .build()
+            
+            // Only add language if it's not null (for auto-detection, omit the parameter)
+            if (language != null) {
+                builder.putString(KEY_LANGUAGE, language)
+            }
+            
+            return builder.build()
         }
     }
 
@@ -69,7 +75,7 @@ class TranscriptionWorker(
             
             // Get input parameters
             val audioFilePath = inputData.getString(KEY_AUDIO_FILE_PATH)
-            val language = inputData.getString(KEY_LANGUAGE) ?: "auto"
+            val language = inputData.getString(KEY_LANGUAGE) // null means auto-detect
             
             if (audioFilePath.isNullOrBlank()) {
                 Log.e(TAG, "Audio file path is null or empty")
@@ -117,6 +123,14 @@ class TranscriptionWorker(
             result.onSuccess { transcriptionText ->
                 Log.i(TAG, "Transcription completed successfully on attempt ${runAttemptCount + 1}")
                 Log.d(TAG, "Transcription text: ${transcriptionText.take(100)}...")
+                
+                // Delete the WAV file after successful transcription
+                val fileDeleted = FileManager.deleteTranscribedFile(audioFile)
+                if (fileDeleted) {
+                    Log.d(TAG, "WAV file deleted after successful transcription: ${audioFile.name}")
+                } else {
+                    Log.w(TAG, "Failed to delete WAV file after transcription: ${audioFile.name}")
+                }
                 
                 // Send success broadcast
                 sendTranscriptionBroadcast(text = transcriptionText)

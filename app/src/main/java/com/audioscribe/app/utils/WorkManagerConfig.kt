@@ -125,4 +125,24 @@ object WorkManagerConfig {
             .setRequiresDeviceIdle(false) // Don't require idle
             .build()
     }
+    
+    /**
+     * Constraints for file cleanup work
+     * More restrictive since it's not time-sensitive
+     */
+    fun getFileCleanupConstraints(context: Context): Constraints {
+        return Constraints.Builder()
+            .setRequiredNetworkType(NetworkType.NOT_REQUIRED) // No network needed for cleanup
+            .setRequiresBatteryNotLow(true) // Don't drain low battery
+            .setRequiresCharging(false) // Don't require charging
+            .setRequiresDeviceIdle(true) // Run when device is idle
+            .build()
+    }
+    
+    /**
+     * Get cleanup work repeat interval in hours
+     */
+    fun getCleanupIntervalHours(): Long {
+        return 6L // Run cleanup every 6 hours
+    }
 }

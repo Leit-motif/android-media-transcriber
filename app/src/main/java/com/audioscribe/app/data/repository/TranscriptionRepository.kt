@@ -31,7 +31,7 @@ class TranscriptionRepository {
     suspend fun transcribeAudio(
         audioFile: File,
         apiKey: String,
-        language: String = WhisperApiService.DEFAULT_LANGUAGE
+        language: String? = null
     ): Result<String> = withContext(Dispatchers.IO) {
         try {
             Log.d(TAG, "Starting transcription for file: ${audioFile.name}, size: ${audioFile.length()} bytes")
@@ -39,6 +39,17 @@ class TranscriptionRepository {
             // Check apiKey
             if (apiKey.isBlank()) {
                 return@withContext Result.failure(Exception("OpenAI API key not configured. Please set it in Settings."))
+            }
+            
+            // Validate API key format (OpenAI keys start with "sk-" and are typically 51 chars)
+            if (!apiKey.startsWith("sk-")) {
+                Log.w(TAG, "API key doesn't start with 'sk-', this might be incorrect")
+                return@withContext Result.failure(Exception("Invalid API key format. OpenAI API keys should start with 'sk-'"))
+            }
+            
+            if (apiKey.length < 20) {
+                Log.w(TAG, "API key seems too short: ${apiKey.length} characters")
+                return@withContext Result.failure(Exception("API key seems too short. Please check your API key."))
             }
             
             // Validate file
@@ -61,7 +72,7 @@ class TranscriptionRepository {
             
             // Create form data parts
             val modelPart = WhisperApiService.createRequestBody(WhisperApiService.DEFAULT_MODEL)
-            val languagePart = WhisperApiService.createRequestBody(language)
+            val languagePart = if (language != null) WhisperApiService.createRequestBody(language) else null
             val responseFormatPart = WhisperApiService.createRequestBody(WhisperApiService.DEFAULT_RESPONSE_FORMAT)
             
             // Make API call
@@ -83,9 +94,19 @@ class TranscriptionRepository {
                     Result.failure(Exception("Empty transcription response"))
                 }
             } else {
+                // Get detailed error information
+                val errorBody = response.errorBody()?.string() ?: "No error details"
                 val errorMessage = "API Error: ${response.code()} - ${response.message()}"
-                Log.e(TAG, errorMessage)
-                Result.failure(Exception(errorMessage))
+                val detailedError = "$errorMessage\nDetails: $errorBody"
+                
+                Log.e(TAG, "API request failed:")
+                Log.e(TAG, "  Status: ${response.code()} ${response.message()}")
+                Log.e(TAG, "  Error body: $errorBody")
+                Log.e(TAG, "  File: ${audioFile.name} (${audioFile.length()} bytes)")
+                Log.e(TAG, "  API key length: ${apiKey.length} chars")
+                Log.e(TAG, "  API key prefix: ${if (apiKey.length >= 7) apiKey.take(7) + "..." else "too short"}")
+                
+                Result.failure(Exception(detailedError))
             }
             
         } catch (e: Exception) {
