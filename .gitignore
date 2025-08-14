@@ -47,6 +47,17 @@ app/build/
 .gradle/
 .kotlin/
 
+# APK files
+*.apk
+*.aab
+*.aar
+
+# Specific build artifacts
+**/build/outputs/
+**/build/intermediates/
+**/build/tmp/
+**/build/kotlin/
+
 # Task files
 tasks.json
 tasks/
