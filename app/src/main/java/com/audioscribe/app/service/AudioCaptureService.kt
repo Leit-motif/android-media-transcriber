@@ -27,6 +27,10 @@ import com.audioscribe.app.R
 import com.audioscribe.app.data.repository.TranscriptionRepository
 import com.audioscribe.app.utils.ApiKeyStore
 import com.audioscribe.app.ui.MainActivity
+import com.audioscribe.app.worker.TranscriptionWorker
+import com.audioscribe.app.utils.WorkManagerConfig
+import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.WorkManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -74,6 +78,7 @@ class AudioCaptureService : LifecycleService() {
     private var isRecording = false
     private var recordingJob: Job? = null
     private val serviceScope = CoroutineScope(Dispatchers.IO + Job())
+    private var inFlightTranscriptions = 0
     
     private var outputFile: File? = null
     private val transcriptionRepository = TranscriptionRepository()
@@ -236,8 +241,8 @@ class AudioCaptureService : LifecycleService() {
             return
         }
         
+        // Signal the recording loop to exit and let it finalize the last chunk
         isRecording = false
-        recordingJob?.cancel()
         
         try {
             audioRecord?.stop()
@@ -247,14 +252,24 @@ class AudioCaptureService : LifecycleService() {
             mediaProjection?.stop()
             mediaProjection = null
             
-            Log.i(TAG, "Audio capture stopped")
+            Log.i(TAG, "Audio capture stopped (awaiting chunk finalization/transcription if any)")
             
         } catch (e: Exception) {
             Log.e(TAG, "Error stopping audio capture", e)
         }
         
-        stopForeground(true)
-        stopSelf()
+        // When the recording job completes and no transcriptions are in flight, stop the service
+        recordingJob?.invokeOnCompletion { maybeStopService() }
+        maybeStopService()
+    }
+
+    private fun maybeStopService() {
+        if (!isRecording && (recordingJob?.isActive != true) && inFlightTranscriptions == 0) {
+            try {
+                stopForeground(true)
+                stopSelf()
+            } catch (_: Exception) { }
+        }
     }
     
 	private suspend fun recordAudio() = withContext(Dispatchers.IO) {
@@ -611,51 +626,81 @@ class AudioCaptureService : LifecycleService() {
     }
     
     /**
-     * Start transcription process for the recorded audio file
+     * Start transcription process for the recorded audio file using WorkManager
      */
     private fun startTranscription(audioFile: File) {
-        serviceScope.launch {
-            try {
-                Log.d(TAG, "Starting transcription for file: ${audioFile.name}")
-                
-                // Update notification to show transcription in progress
-                updateNotificationForTranscription(isProcessing = true)
-                
-                // Retrieve API key
-                val apiKey = ApiKeyStore.getApiKey(this@AudioCaptureService)
-                if (apiKey.isBlank()) {
-                    updateNotificationForTranscription(isProcessing = false, hasResult = false)
-                    sendTranscriptionBroadcast(error = "OpenAI API key not configured. Set it in Settings.")
-                    return@launch
-                }
-                // Perform transcription
-                val result = transcriptionRepository.transcribeAudio(audioFile, apiKey)
-                
-                result.onSuccess { transcriptionText ->
-                    Log.i(TAG, "Transcription completed successfully")
-                    Log.d(TAG, "Transcription text: ${transcriptionText.take(100)}...")
-                    
-                    // Update notification to show transcription completed
-                    updateNotificationForTranscription(isProcessing = false, hasResult = true)
-						
-						// Broadcast transcription to UI
-						sendTranscriptionBroadcast(text = transcriptionText)
-                    
-                }.onFailure { error ->
-                    Log.e(TAG, "Transcription failed: ${error.message}", error)
-                    
-                    // Update notification to show transcription failed
-                    updateNotificationForTranscription(isProcessing = false, hasResult = false)
-                    
-						// Broadcast error to UI
-						sendTranscriptionBroadcast(error = error.message ?: "Unknown error")
-                }
-                
-            } catch (e: Exception) {
-                Log.e(TAG, "Error during transcription process", e)
+        try {
+            Log.d(TAG, "Enqueuing transcription work for file: ${audioFile.name}")
+            
+            // Update notification to show transcription in progress
+            updateNotificationForTranscription(isProcessing = true)
+            
+            // Check if API key is configured before enqueuing work
+            val apiKey = ApiKeyStore.getApiKey(this@AudioCaptureService)
+            if (apiKey.isBlank()) {
                 updateNotificationForTranscription(isProcessing = false, hasResult = false)
-					sendTranscriptionBroadcast(error = e.message ?: "Unknown error")
+                sendTranscriptionBroadcast(error = "OpenAI API key not configured. Set it in Settings.")
+                return
             }
+            
+            // Get constraints from configuration
+            val constraints = WorkManagerConfig.getTranscriptionConstraints(this)
+            
+            // Create input data for the worker
+            val inputData = TranscriptionWorker.createInputData(
+                audioFilePath = audioFile.absolutePath,
+                language = "auto"
+            )
+            
+            // Create and enqueue the work request
+            val transcriptionWork = OneTimeWorkRequestBuilder<TranscriptionWorker>()
+                .setInputData(inputData)
+                .setConstraints(constraints)
+                .setBackoffCriteria(
+                    WorkManagerConfig.getBackoffPolicy(),
+                    WorkManagerConfig.getInitialBackoffDelaySeconds(),
+                    WorkManagerConfig.getBackoffTimeUnit()
+                )
+                .build()
+            
+            // Track in-flight transcriptions for service lifecycle management
+            inFlightTranscriptions++
+            
+            // Enqueue the work
+            WorkManager.getInstance(this).enqueue(transcriptionWork)
+            
+            // Observe the work result (optional - the worker will broadcast results)
+            WorkManager.getInstance(this).getWorkInfoByIdLiveData(transcriptionWork.id)
+                .observe(this) { workInfo ->
+                    if (workInfo != null && workInfo.state.isFinished) {
+                        // Work completed (success or failure)
+                        inFlightTranscriptions = (inFlightTranscriptions - 1).coerceAtLeast(0)
+                        maybeStopService()
+                        
+                        Log.d(TAG, "Transcription work completed with state: ${workInfo.state}")
+                        
+                        // The worker handles broadcasting results, but we update notification here
+                        when (workInfo.state) {
+                            androidx.work.WorkInfo.State.SUCCEEDED -> {
+                                updateNotificationForTranscription(isProcessing = false, hasResult = true)
+                            }
+                            androidx.work.WorkInfo.State.FAILED -> {
+                                updateNotificationForTranscription(isProcessing = false, hasResult = false)
+                            }
+                            else -> {
+                                // Other states (CANCELLED, etc.)
+                                updateNotificationForTranscription(isProcessing = false, hasResult = false)
+                            }
+                        }
+                    }
+                }
+            
+            Log.i(TAG, "Transcription work enqueued successfully for file: ${audioFile.name}")
+            
+        } catch (e: Exception) {
+            Log.e(TAG, "Error enqueuing transcription work", e)
+            updateNotificationForTranscription(isProcessing = false, hasResult = false)
+            sendTranscriptionBroadcast(error = e.message ?: "Failed to start transcription")
         }
     }
     

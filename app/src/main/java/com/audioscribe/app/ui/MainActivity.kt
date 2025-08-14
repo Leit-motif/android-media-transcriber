@@ -425,11 +425,24 @@ fun AudioscribeScreen(
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text(
-                                text = "Results",
-                                style = MaterialTheme.typography.titleMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    text = "Results",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                if (transcriptionResult.isNotEmpty()) {
+                                    TextButton(onClick = {
+                                        val intent = Intent(context, TranscriptionDetailActivity::class.java).apply {
+                                            putExtra(TranscriptionDetailActivity.EXTRA_TRANSCRIPTION_TEXT, transcriptionResult)
+                                        }
+                                        context.startActivity(intent)
+                                    }) {
+                                        Text("Open")
+                                    }
+                                }
+                            }
                             
 						if (transcriptionResult.isNotEmpty()) {
 							Row(verticalAlignment = Alignment.CenterVertically) {

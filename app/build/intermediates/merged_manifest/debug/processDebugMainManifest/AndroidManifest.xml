@@ -61,6 +61,12 @@
             android:exported="false"
             android:theme="@style/Theme.Audioscribe" />
 
+        <!-- Transcription Detail Activity -->
+        <activity
+            android:name="com.audioscribe.app.ui.TranscriptionDetailActivity"
+            android:exported="false"
+            android:theme="@style/Theme.Audioscribe" />
+
         <!-- Audio Capture Foreground Service -->
         <service
             android:name="com.audioscribe.app.service.AudioCaptureService"
