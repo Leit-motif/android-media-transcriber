@@ -1,6 +1,11 @@
 package com.audioscribe.app.ui
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
+import android.content.Intent
 import android.os.Bundle
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.*
@@ -11,6 +16,8 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Error
+import androidx.compose.material.icons.filled.Send
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -24,6 +31,7 @@ import com.audioscribe.app.data.database.entity.SessionStatus
 import com.audioscribe.app.data.repository.SessionRepository
 import java.text.SimpleDateFormat
 import java.util.*
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 class SessionDetailActivity : ComponentActivity() {
@@ -57,10 +65,12 @@ private fun SessionDetailScreen(
 ) {
     val context = LocalContext.current
     val sessionRepository = remember { SessionRepository(context) }
+    val scope = rememberCoroutineScope()
     
     var session by remember { mutableStateOf<TranscriptionSession?>(null) }
     var isLoading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
+    var showDeleteDialog by remember { mutableStateOf(false) }
     
     // Load session (one-shot)
     LaunchedEffect(sessionId) {
@@ -74,7 +84,7 @@ private fun SessionDetailScreen(
             isLoading = false
         }
     }
-
+    
     // Reactively collect chunks and build transcript text
     val chunksFlow = remember { sessionRepository.getChunksForSession(sessionId) }
     val chunks by chunksFlow.collectAsStateWithLifecycle(initialValue = emptyList())
@@ -84,6 +94,19 @@ private fun SessionDetailScreen(
             .joinToString(separator = "\n\n") { it.text }
     }
     
+    // Delete session function
+    fun deleteSession() {
+        scope.launch {
+            try {
+                sessionRepository.deleteSession(sessionId)
+                Toast.makeText(context, "Session deleted", Toast.LENGTH_SHORT).show()
+                onBack()
+            } catch (e: Exception) {
+                Toast.makeText(context, "Failed to delete session: ${e.message}", Toast.LENGTH_LONG).show()
+            }
+        }
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -99,24 +122,60 @@ private fun SessionDetailScreen(
                     }
                 },
                 actions = {
-                    if (transcriptText.isNotEmpty()) {
-                        IconButton(
-                            onClick = {
-                                // TODO: Implement copy functionality
-                            }
-                        ) {
-                            Icon(Icons.Default.ContentCopy, contentDescription = "Copy")
-                        }
-                        
-                        IconButton(
-                            onClick = {
-                                // TODO: Implement share functionality
-                            }
-                        ) {
-                            Icon(Icons.Default.Share, contentDescription = "Share")
-                        }
-                    }
-                }
+					// Always show delete button if session exists
+					if (session != null) {
+						IconButton(
+							onClick = {
+								showDeleteDialog = true
+							}
+						) {
+							Icon(Icons.Default.Delete, contentDescription = "Delete Session")
+						}
+					}
+					
+					// Show other actions only when there's transcript text
+					if (transcriptText.isNotEmpty()) {
+						IconButton(
+							onClick = {
+								val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+								cm.setPrimaryClip(ClipData.newPlainText("Transcription", transcriptText))
+								Toast.makeText(context, "Copied", Toast.LENGTH_SHORT).show()
+							}
+						) {
+							Icon(Icons.Default.ContentCopy, contentDescription = "Copy")
+						}
+
+						IconButton(
+							onClick = {
+								val share = Intent(Intent.ACTION_SEND).apply {
+									type = "text/plain"
+									putExtra(Intent.EXTRA_TEXT, transcriptText)
+								}
+								context.startActivity(Intent.createChooser(share, "Share transcription"))
+							}
+						) {
+							Icon(Icons.Default.Share, contentDescription = "Share")
+						}
+
+						IconButton(
+							onClick = {
+								val send = Intent(Intent.ACTION_SEND).apply {
+									type = "text/plain"
+									putExtra(Intent.EXTRA_TEXT, transcriptText)
+								}
+								try {
+									// Try direct to ChatGPT if installed
+									send.`package` = "com.openai.chatgpt"
+									context.startActivity(send)
+								} catch (_: Exception) {
+									context.startActivity(Intent.createChooser(send, "Send to ChatGPT"))
+								}
+							}
+						) {
+							Icon(Icons.Default.Send, contentDescription = "Send to ChatGPT")
+						}
+					}
+				}
             )
         }
     ) { innerPadding ->
@@ -140,6 +199,24 @@ private fun SessionDetailScreen(
                 )
             }
         }
+    }
+
+    if (showDeleteDialog) {
+        AlertDialog(
+            onDismissRequest = { showDeleteDialog = false },
+            title = { Text("Confirm Deletion") },
+            text = { Text("Are you sure you want to delete this session?") },
+            confirmButton = {
+                TextButton(onClick = { deleteSession(); showDeleteDialog = false }) {
+                    Text("Delete")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteDialog = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
     }
 }
 
