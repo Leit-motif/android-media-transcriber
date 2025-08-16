@@ -28,6 +28,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.History
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.text.selection.SelectionContainer
@@ -37,6 +38,13 @@ import com.audioscribe.app.service.AudioCaptureService
 import com.audioscribe.app.ui.theme.AudioscribeTheme
 import com.audioscribe.app.utils.ApiKeyStore
 import com.audioscribe.app.utils.PermissionManager
+import com.audioscribe.app.data.repository.SessionRepository
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.remember
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 /**
  * Main Activity for Audioscribe
@@ -54,6 +62,7 @@ class MainActivity : ComponentActivity() {
     private var transcriptionResult by mutableStateOf("")
     private var isProcessing by mutableStateOf(false)
     private var resultsReceiver: BroadcastReceiver? = null
+    private lateinit var sessionRepository: SessionRepository
     
     // MediaProjection permission launcher
     private val mediaProjectionLauncher = registerForActivityResult(
@@ -99,6 +108,9 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         
+        // Initialize repository
+        sessionRepository = SessionRepository(this)
+        
         // Check initial permission state
         hasPermissions = PermissionManager.hasAllPermissions(this)
         
@@ -109,6 +121,7 @@ class MainActivity : ComponentActivity() {
                     isRecording = isRecording,
                     isProcessing = isProcessing,
                     transcriptionResult = transcriptionResult,
+                    sessionRepository = sessionRepository,
                     onRequestPermissions = { requestPermissions() },
                     onStartRecording = { startRecording() },
                     onStopRecording = { stopRecording() },
@@ -215,7 +228,18 @@ class MainActivity : ComponentActivity() {
                     val text = intent.getStringExtra(AudioCaptureService.EXTRA_TRANSCRIPTION_TEXT)
                     val error = intent.getStringExtra(AudioCaptureService.EXTRA_TRANSCRIPTION_ERROR)
                     if (!text.isNullOrEmpty()) {
-                        transcriptionResult = text
+                        if (transcriptionResult.isNotEmpty()) {
+                            val ts = SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date())
+                            transcriptionResult = buildString {
+                                append(transcriptionResult)
+                                append("\n\n— ")
+                                append(ts)
+                                append(" —\n")
+                                append(text)
+                            }
+                        } else {
+                            transcriptionResult = text
+                        }
                         isProcessing = false
                     } else if (!error.isNullOrEmpty()) {
                         isProcessing = false
@@ -282,6 +306,7 @@ fun AudioscribeScreen(
     isRecording: Boolean,
     isProcessing: Boolean,
     transcriptionResult: String,
+    sessionRepository: SessionRepository,
     onRequestPermissions: () -> Unit,
     onStartRecording: () -> Unit,
     onStopRecording: () -> Unit,
@@ -289,12 +314,41 @@ fun AudioscribeScreen(
 ) {
     val context = LocalContext.current
     
+    // Get the latest session's combined transcript from database
+    val latestSession by sessionRepository.getAllSessions().collectAsStateWithLifecycle(initialValue = emptyList())
+    val latestSessionId = latestSession.firstOrNull()?.id
+    val chunks by if (latestSessionId != null) {
+        sessionRepository.getChunksForSession(latestSessionId).collectAsStateWithLifecycle(initialValue = emptyList())
+    } else {
+        mutableStateOf(emptyList())
+    }
+    
+    val combinedTranscriptFromDB by remember(chunks) {
+        derivedStateOf {
+            if (chunks.isNotEmpty()) {
+                chunks.joinToString(" ") { it.text }
+            } else ""
+        }
+    }
+    
+    // Use database transcript if available, otherwise fall back to broadcast transcript
+    val displayTranscript = if (combinedTranscriptFromDB.isNotEmpty()) combinedTranscriptFromDB else transcriptionResult
+    
     Scaffold(
         modifier = Modifier.fillMaxSize(),
         topBar = {
             TopAppBar(
                 title = { Text("Audioscribe") },
                 actions = {
+                    IconButton(onClick = {
+                        context.startActivity(Intent(context, SessionListActivity::class.java))
+                    }) {
+                        Icon(
+                            imageVector = Icons.Default.History,
+                            contentDescription = "History"
+                        )
+                    }
+                    
                     IconButton(onClick = {
                         context.startActivity(Intent(context, SettingsActivity::class.java))
                     }) {
@@ -313,7 +367,7 @@ fun AudioscribeScreen(
                 .padding(innerPadding)
                 .padding(16.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = if (transcriptionResult.isNotEmpty()) Arrangement.Top else Arrangement.Center
+            verticalArrangement = if (displayTranscript.isNotEmpty() || isProcessing) Arrangement.Top else Arrangement.Center
         ) {
             Spacer(modifier = Modifier.height(16.dp))
 
@@ -408,7 +462,7 @@ fun AudioscribeScreen(
             )
             
             // Transcription Results Section
-            if (transcriptionResult.isNotEmpty() || isProcessing) {
+            if (displayTranscript.isNotEmpty() || isProcessing) {
                 Spacer(modifier = Modifier.height(24.dp))
                 
                 Card(
@@ -432,10 +486,10 @@ fun AudioscribeScreen(
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                                 Spacer(modifier = Modifier.width(8.dp))
-                                if (transcriptionResult.isNotEmpty()) {
+                                if (displayTranscript.isNotEmpty()) {
                                     TextButton(onClick = {
                                         val intent = Intent(context, TranscriptionDetailActivity::class.java).apply {
-                                            putExtra(TranscriptionDetailActivity.EXTRA_TRANSCRIPTION_TEXT, transcriptionResult)
+                                            putExtra(TranscriptionDetailActivity.EXTRA_TRANSCRIPTION_TEXT, displayTranscript)
                                         }
                                         context.startActivity(intent)
                                     }) {
@@ -443,30 +497,6 @@ fun AudioscribeScreen(
                                     }
                                 }
                             }
-                            
-						if (transcriptionResult.isNotEmpty()) {
-							Row(verticalAlignment = Alignment.CenterVertically) {
-								TextButton(onClick = onClearResults) {
-									Text("Clear")
-								}
-								IconButton(onClick = {
-									val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-									clipboard.setPrimaryClip(ClipData.newPlainText("Transcription", transcriptionResult))
-									Toast.makeText(context, "Copied", Toast.LENGTH_SHORT).show()
-								}) {
-									Icon(imageVector = Icons.Filled.ContentCopy, contentDescription = "Copy")
-								}
-								IconButton(onClick = {
-									val share = Intent(Intent.ACTION_SEND).apply {
-										type = "text/plain"
-										putExtra(Intent.EXTRA_TEXT, transcriptionResult)
-									}
-									context.startActivity(Intent.createChooser(share, "Share transcription"))
-								}) {
-									Icon(imageVector = Icons.Filled.Share, contentDescription = "Share")
-								}
-							}
-						}
                         }
                         
                         Spacer(modifier = Modifier.height(8.dp))
@@ -486,30 +516,30 @@ fun AudioscribeScreen(
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             }
-                        } else if (transcriptionResult.isNotEmpty()) {
-								val scrollState = rememberScrollState()
-								Card(
-									modifier = Modifier.fillMaxWidth(),
-									colors = CardDefaults.cardColors(
-										containerColor = MaterialTheme.colorScheme.surface
-									)
-								) {
-									Box(
-										modifier = Modifier
-											.fillMaxWidth()
-											.heightIn(max = 320.dp)
-											.verticalScroll(scrollState)
-									) {
-										SelectionContainer {
-											Text(
-												text = transcriptionResult,
-												style = MaterialTheme.typography.bodyMedium,
-												modifier = Modifier.padding(12.dp),
-												color = MaterialTheme.colorScheme.onSurface
-											)
-										}
-									}
-								}
+                        } else if (displayTranscript.isNotEmpty()) {
+                            val scrollState = rememberScrollState()
+                            Card(
+                                modifier = Modifier.fillMaxWidth(),
+                                colors = CardDefaults.cardColors(
+                                    containerColor = MaterialTheme.colorScheme.surface
+                                )
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .heightIn(max = 320.dp)
+                                        .verticalScroll(scrollState)
+                                ) {
+                                    SelectionContainer {
+                                        Text(
+                                            text = displayTranscript,
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            modifier = Modifier.padding(12.dp),
+                                            color = MaterialTheme.colorScheme.onSurface
+                                        )
+                                    }
+                                }
+                            }
                         }
                     }
                 }
@@ -527,6 +557,7 @@ fun AudioscribeScreenPreview() {
             isRecording = false,
             isProcessing = false,
             transcriptionResult = "",
+            sessionRepository = SessionRepository(LocalContext.current), // Pass a dummy for preview
             onRequestPermissions = {},
             onStartRecording = {},
             onStopRecording = {},
@@ -543,7 +574,8 @@ fun AudioscribeScreenWithResultsPreview() {
             hasPermissions = true,
             isRecording = false,
             isProcessing = false,
-            transcriptionResult = "Sample transcription result would appear here once the transcription service is implemented.",
+            transcriptionResult = "Chunk 1 text...\n\n— 12:34:56 —\nChunk 2 text...",
+            sessionRepository = SessionRepository(LocalContext.current), // Pass a dummy for preview
             onRequestPermissions = {},
             onStartRecording = {},
             onStopRecording = {},

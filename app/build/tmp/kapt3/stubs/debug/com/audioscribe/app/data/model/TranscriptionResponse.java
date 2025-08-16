@@ -9,6 +9,16 @@ public final class TranscriptionResponse {
     @org.jetbrains.annotations.NotNull()
     private final java.lang.String text = null;
     
+    public TranscriptionResponse(@org.jetbrains.annotations.NotNull()
+    java.lang.String text) {
+        super();
+    }
+    
+    @org.jetbrains.annotations.NotNull()
+    public final java.lang.String getText() {
+        return null;
+    }
+    
     @org.jetbrains.annotations.NotNull()
     public final java.lang.String component1() {
         return null;
@@ -34,16 +44,6 @@ public final class TranscriptionResponse {
     @java.lang.Override()
     @org.jetbrains.annotations.NotNull()
     public java.lang.String toString() {
-        return null;
-    }
-    
-    public TranscriptionResponse(@org.jetbrains.annotations.NotNull()
-    java.lang.String text) {
-        super();
-    }
-    
-    @org.jetbrains.annotations.NotNull()
-    public final java.lang.String getText() {
         return null;
     }
 }

@@ -29,6 +29,11 @@ import com.audioscribe.app.utils.ApiKeyStore
 import com.audioscribe.app.ui.MainActivity
 import com.audioscribe.app.worker.TranscriptionWorker
 import com.audioscribe.app.utils.WorkManagerConfig
+import com.audioscribe.app.data.repository.SessionRepository
+import com.audioscribe.app.data.database.entity.TranscriptionSession
+import com.audioscribe.app.data.database.entity.SessionStatus
+import com.audioscribe.app.data.database.entity.TranscriptChunk
+import java.util.Date
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import kotlinx.coroutines.CoroutineScope
@@ -83,6 +88,12 @@ class AudioCaptureService : LifecycleService() {
     
     private var outputFile: File? = null
     private val transcriptionRepository = TranscriptionRepository()
+    private val sessionRepository by lazy { SessionRepository(this) }
+    
+    // Session management
+    private var currentSessionId: Long? = null
+    private var sessionStartTime: Date? = null
+    private var chunkCounter = 0
     
     override fun onCreate() {
         super.onCreate()
@@ -214,6 +225,36 @@ class AudioCaptureService : LifecycleService() {
             val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
             notificationManager.notify(NOTIFICATION_ID, notification)
             
+			// Create session in database
+			sessionStartTime = Date()
+			// Create session asynchronously but ensure it's ready before recording
+			serviceScope.launch {
+				try {
+					val session = TranscriptionSession(
+						startTime = sessionStartTime!!,
+						endTime = null,
+						title = "Session ${System.currentTimeMillis()}",
+						status = SessionStatus.IN_PROGRESS
+					)
+					currentSessionId = sessionRepository.startNewSession(session)
+					chunkCounter = 0
+					Log.d(TAG, "Created session in database with ID: $currentSessionId")
+					Log.d(TAG, "Session creation completed, chunkCounter initialized to: $chunkCounter")
+				} catch (e: Exception) {
+					Log.e(TAG, "Failed to create session in database", e)
+				}
+			}
+			
+			// Wait for session creation to complete (simple polling)
+			var attempts = 0
+			while (currentSessionId == null && attempts < 50) { // Wait up to 5 seconds
+				Thread.sleep(100)
+				attempts++
+			}
+			if (currentSessionId == null) {
+				Log.w(TAG, "Session creation timeout, proceeding without session")
+			}
+            
             // Start recording
             audioRecord?.startRecording()
             isRecording = true
@@ -253,6 +294,25 @@ class AudioCaptureService : LifecycleService() {
             mediaProjection?.stop()
             mediaProjection = null
             
+            // Update session end time
+            currentSessionId?.let { sessionId ->
+                serviceScope.launch {
+                    try {
+                        val session = sessionRepository.getSession(sessionId)
+                        if (session != null) {
+                            val updatedSession = session.copy(
+                                endTime = Date(),
+                                status = SessionStatus.COMPLETED
+                            )
+                            sessionRepository.updateSession(updatedSession)
+                            Log.d(TAG, "Updated session $sessionId as completed")
+                        }
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Failed to update session end time", e)
+                    }
+                }
+            }
+            
             Log.i(TAG, "Audio capture stopped (awaiting chunk finalization/transcription if any)")
             
         } catch (e: Exception) {
@@ -284,6 +344,7 @@ class AudioCaptureService : LifecycleService() {
 		var currentFile: File? = null
 		var fos: FileOutputStream? = null
 		var chunkBytesWritten = 0
+		var chunkStartMillis: Long = 0L
 		
 		fun openNewChunk() {
 			try {
@@ -293,6 +354,7 @@ class AudioCaptureService : LifecycleService() {
 				fos = FileOutputStream(currentFile!!)
 				writeWavHeader(fos!!, 0)
 				chunkBytesWritten = 0
+				chunkStartMillis = System.currentTimeMillis()
 				Log.d(TAG, "Opened new chunk: ${currentFile?.name}")
 			} catch (e: Exception) {
 				Log.e(TAG, "Failed to open new chunk", e)
@@ -332,7 +394,8 @@ class AudioCaptureService : LifecycleService() {
 				if (bytesRead > 0) {
 					fos?.write(audioBuffer, 0, bytesRead)
 					chunkBytesWritten += bytesRead
-					if (chunkBytesWritten >= maxChunkBytes) {
+					val elapsedMs = System.currentTimeMillis() - chunkStartMillis
+					if (chunkBytesWritten >= maxChunkBytes || elapsedMs >= CHUNK_SECONDS * 1000) {
 						// Rotate file
 						closeAndProcessCurrentChunk()
 						openNewChunk()
@@ -544,6 +607,36 @@ class AudioCaptureService : LifecycleService() {
             val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
             notificationManager.notify(NOTIFICATION_ID, notification)
             
+			// Create session in database
+			sessionStartTime = Date()
+			// Create session asynchronously but ensure it's ready before recording
+			serviceScope.launch {
+				try {
+					val session = TranscriptionSession(
+						startTime = sessionStartTime!!,
+						endTime = null,
+						title = "Session ${System.currentTimeMillis()}",
+						status = SessionStatus.IN_PROGRESS
+					)
+					currentSessionId = sessionRepository.startNewSession(session)
+					chunkCounter = 0
+					Log.d(TAG, "Created microphone session in database with ID: $currentSessionId")
+					Log.d(TAG, "Microphone session creation completed, chunkCounter initialized to: $chunkCounter")
+				} catch (e: Exception) {
+					Log.e(TAG, "Failed to create microphone session in database", e)
+				}
+			}
+			
+			// Wait for session creation to complete (simple polling)
+			var attempts = 0
+			while (currentSessionId == null && attempts < 50) { // Wait up to 5 seconds
+				Thread.sleep(100)
+				attempts++
+			}
+			if (currentSessionId == null) {
+				Log.w(TAG, "Microphone session creation timeout, proceeding without session")
+			}
+            
             // Start recording
             audioRecord?.startRecording()
             isRecording = true
@@ -647,11 +740,15 @@ class AudioCaptureService : LifecycleService() {
             // Get constraints from configuration
             val constraints = WorkManagerConfig.getTranscriptionConstraints(this)
             
-            // Create input data for the worker
+            // Create input data for the worker, including session information
             val inputData = TranscriptionWorker.createInputData(
-                audioFilePath = audioFile.absolutePath
+                audioFilePath = audioFile.absolutePath,
+                sessionId = currentSessionId,
+                chunkOrder = chunkCounter++
                 // language omitted for auto-detection
             )
+            
+            Log.d(TAG, "Creating transcription worker with sessionId: $currentSessionId, chunkOrder: ${chunkCounter - 1}")
             
             // Create and enqueue the work request
             val transcriptionWork = OneTimeWorkRequestBuilder<TranscriptionWorker>()

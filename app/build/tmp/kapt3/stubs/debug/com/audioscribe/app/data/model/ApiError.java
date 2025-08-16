@@ -12,6 +12,28 @@ public final class ApiError {
     @org.jetbrains.annotations.Nullable()
     private final java.lang.String code = null;
     
+    public ApiError(@org.jetbrains.annotations.NotNull()
+    java.lang.String message, @org.jetbrains.annotations.Nullable()
+    java.lang.String type, @org.jetbrains.annotations.Nullable()
+    java.lang.String code) {
+        super();
+    }
+    
+    @org.jetbrains.annotations.NotNull()
+    public final java.lang.String getMessage() {
+        return null;
+    }
+    
+    @org.jetbrains.annotations.Nullable()
+    public final java.lang.String getType() {
+        return null;
+    }
+    
+    @org.jetbrains.annotations.Nullable()
+    public final java.lang.String getCode() {
+        return null;
+    }
+    
     @org.jetbrains.annotations.NotNull()
     public final java.lang.String component1() {
         return null;
@@ -49,28 +71,6 @@ public final class ApiError {
     @java.lang.Override()
     @org.jetbrains.annotations.NotNull()
     public java.lang.String toString() {
-        return null;
-    }
-    
-    public ApiError(@org.jetbrains.annotations.NotNull()
-    java.lang.String message, @org.jetbrains.annotations.Nullable()
-    java.lang.String type, @org.jetbrains.annotations.Nullable()
-    java.lang.String code) {
-        super();
-    }
-    
-    @org.jetbrains.annotations.NotNull()
-    public final java.lang.String getMessage() {
-        return null;
-    }
-    
-    @org.jetbrains.annotations.Nullable()
-    public final java.lang.String getType() {
-        return null;
-    }
-    
-    @org.jetbrains.annotations.Nullable()
-    public final java.lang.String getCode() {
         return null;
     }
 }

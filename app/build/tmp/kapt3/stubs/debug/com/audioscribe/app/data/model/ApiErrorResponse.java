@@ -9,6 +9,16 @@ public final class ApiErrorResponse {
     @org.jetbrains.annotations.NotNull()
     private final com.audioscribe.app.data.model.ApiError error = null;
     
+    public ApiErrorResponse(@org.jetbrains.annotations.NotNull()
+    com.audioscribe.app.data.model.ApiError error) {
+        super();
+    }
+    
+    @org.jetbrains.annotations.NotNull()
+    public final com.audioscribe.app.data.model.ApiError getError() {
+        return null;
+    }
+    
     @org.jetbrains.annotations.NotNull()
     public final com.audioscribe.app.data.model.ApiError component1() {
         return null;
@@ -34,16 +44,6 @@ public final class ApiErrorResponse {
     @java.lang.Override()
     @org.jetbrains.annotations.NotNull()
     public java.lang.String toString() {
-        return null;
-    }
-    
-    public ApiErrorResponse(@org.jetbrains.annotations.NotNull()
-    com.audioscribe.app.data.model.ApiError error) {
-        super();
-    }
-    
-    @org.jetbrains.annotations.NotNull()
-    public final com.audioscribe.app.data.model.ApiError getError() {
         return null;
     }
 }

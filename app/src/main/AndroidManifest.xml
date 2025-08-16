@@ -50,6 +50,18 @@
             android:exported="false"
             android:theme="@style/Theme.Audioscribe" />
 
+        <!-- Session List Activity -->
+        <activity
+            android:name=".ui.SessionListActivity"
+            android:exported="false"
+            android:theme="@style/Theme.Audioscribe" />
+
+        <!-- Session Detail Activity -->
+        <activity
+            android:name=".ui.SessionDetailActivity"
+            android:exported="false"
+            android:theme="@style/Theme.Audioscribe" />
+
         <!-- Audio Capture Foreground Service -->
         <service
             android:name=".service.AudioCaptureService"

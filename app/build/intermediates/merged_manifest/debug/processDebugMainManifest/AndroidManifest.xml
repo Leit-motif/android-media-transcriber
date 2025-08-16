@@ -39,7 +39,6 @@
         android:label="@string/app_name"
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
-        android:testOnly="true"
         android:theme="@style/Theme.Audioscribe" >
 
         <!-- Main Activity -->
@@ -64,6 +63,18 @@
         <!-- Transcription Detail Activity -->
         <activity
             android:name="com.audioscribe.app.ui.TranscriptionDetailActivity"
+            android:exported="false"
+            android:theme="@style/Theme.Audioscribe" />
+
+        <!-- Session List Activity -->
+        <activity
+            android:name="com.audioscribe.app.ui.SessionListActivity"
+            android:exported="false"
+            android:theme="@style/Theme.Audioscribe" />
+
+        <!-- Session Detail Activity -->
+        <activity
+            android:name="com.audioscribe.app.ui.SessionDetailActivity"
             android:exported="false"
             android:theme="@style/Theme.Audioscribe" />
 
