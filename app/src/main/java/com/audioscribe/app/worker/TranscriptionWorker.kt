@@ -92,12 +92,12 @@ class TranscriptionWorker(
 			// Get input parameters
 			val audioFilePath = inputData.getString(KEY_AUDIO_FILE_PATH)
 			val language = inputData.getString(KEY_LANGUAGE) // null means auto-detect
-			val sessionId = if (inputData.hasKeyWithValueOfType(KEY_SESSION_ID, Long::class.java)) {
-				inputData.getLong(KEY_SESSION_ID, -1L).takeIf { it != -1L }
-			} else null
-			val chunkOrder = if (inputData.hasKeyWithValueOfType(KEY_CHUNK_ORDER, Int::class.java)) {
-				inputData.getInt(KEY_CHUNK_ORDER, -1).takeIf { it != -1 }
-			} else null
+			// Avoid hasKeyWithValueOfType to prevent type mismatch issues
+			val sessionIdValue = inputData.getLong(KEY_SESSION_ID, Long.MIN_VALUE)
+			val sessionId = sessionIdValue.takeIf { it != Long.MIN_VALUE }
+			val chunkOrderValue = inputData.getInt(KEY_CHUNK_ORDER, Int.MIN_VALUE)
+			val chunkOrder = chunkOrderValue.takeIf { it != Int.MIN_VALUE }
+			Log.d(TAG, "InputData -> sessionId=${sessionId ?: "null"}, chunkOrder=${chunkOrder ?: "null"}")
 			
 			if (audioFilePath.isNullOrBlank()) {
 				Log.e(TAG, "Audio file path is null or empty")
