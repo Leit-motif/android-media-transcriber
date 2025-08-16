@@ -65,6 +65,10 @@ dependencies {
     implementation(libs.androidx.room.ktx)
     kapt(libs.androidx.room.compiler)
 
+    // SQLCipher/SQLite for encrypted Room
+    implementation(libs.sqlcipher)
+    implementation(libs.androidx.sqlite)
+
     // WorkManager
     implementation(libs.androidx.work.runtime.ktx)
 

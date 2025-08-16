@@ -10,6 +10,8 @@ import com.audioscribe.app.data.database.entity.TranscriptChunk
 import com.audioscribe.app.data.database.dao.TranscriptionSessionDao
 import com.audioscribe.app.data.database.dao.TranscriptChunkDao
 import com.audioscribe.app.data.database.converter.Converters
+import net.sqlcipher.database.SQLiteDatabase
+import net.sqlcipher.database.SupportFactory
 
 /**
  * Room database for Audioscribe app
@@ -25,41 +27,46 @@ import com.audioscribe.app.data.database.converter.Converters
 )
 @TypeConverters(Converters::class)
 abstract class AudioscribeDatabase : RoomDatabase() {
-    
     /**
      * Get the TranscriptionSession DAO
      */
     abstract fun sessionDao(): TranscriptionSessionDao
-    
+
     /**
      * Get the TranscriptChunk DAO
      */
     abstract fun chunkDao(): TranscriptChunkDao
-    
+
     companion object {
-        private const val DATABASE_NAME = "audioscribe_database"
-        
+        private const val DATABASE_NAME = "audioscribe_encrypted.db"
+
         @Volatile
         private var INSTANCE: AudioscribeDatabase? = null
-        
+
         /**
          * Get the singleton database instance
          */
         fun getInstance(context: Context): AudioscribeDatabase {
             return INSTANCE ?: synchronized(this) {
+                // Ensure SQLCipher native libs are loaded
+                SQLiteDatabase.loadLibs(context)
+                val passphrase = DatabaseKeyStore.getOrCreatePassphrase(context)
+                val factory = SupportFactory(passphrase)
+
                 val instance = Room.databaseBuilder(
                     context.applicationContext,
                     AudioscribeDatabase::class.java,
                     DATABASE_NAME
                 )
+                    .openHelperFactory(factory)
                     .fallbackToDestructiveMigration() // For development - remove in production
                     .build()
-                
+
                 INSTANCE = instance
                 instance
             }
         }
-        
+
         /**
          * Create an in-memory database for testing
          */
@@ -69,7 +76,7 @@ abstract class AudioscribeDatabase : RoomDatabase() {
                 AudioscribeDatabase::class.java
             ).build()
         }
-        
+
         /**
          * Close the database instance (useful for testing)
          */
