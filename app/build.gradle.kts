@@ -87,16 +87,11 @@ dependencies {
     implementation(libs.androidx.lifecycle.livedata.ktx)
     implementation(libs.androidx.lifecycle.service)
 
-    // Firebase - Removed for local-only build
-    // implementation(platform(libs.firebase.bom))
-    // implementation(libs.firebase.storage)
-    // implementation(libs.firebase.auth)
-
-    // Permissions - Using built-in ActivityResultContracts instead of Accompanist
-
     // Media/Audio
     implementation(libs.androidx.media3.exoplayer)
     implementation(libs.androidx.media3.common)
+    implementation(libs.androidx.media3.transformer)
+    implementation(libs.androidx.media3.muxer)
 
     // Security
     implementation(libs.androidx.security.crypto)

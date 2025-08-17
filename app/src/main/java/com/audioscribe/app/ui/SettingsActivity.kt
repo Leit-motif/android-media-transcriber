@@ -5,6 +5,8 @@ import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material3.*
@@ -15,6 +17,7 @@ import androidx.compose.ui.unit.dp
 import com.audioscribe.app.ui.theme.AudioscribeTheme
 import com.audioscribe.app.utils.ApiKeyStore
 import com.audioscribe.app.utils.PromptStore
+import com.audioscribe.app.utils.TranscriptionSettingsStore
 
 class SettingsActivity : ComponentActivity() {
 
@@ -34,6 +37,7 @@ private fun SettingsScreen(onBack: () -> Unit) {
 	val context = androidx.compose.ui.platform.LocalContext.current
 	var apiKey by remember { mutableStateOf(ApiKeyStore.getApiKey(context)) }
 	var defaultPrompt by remember { mutableStateOf(PromptStore.getDefaultPrompt(context)) }
+	var speed by remember { mutableFloatStateOf(TranscriptionSettingsStore.getSpeedFactor(context)) }
 
     Scaffold(
         topBar = {
@@ -51,7 +55,8 @@ private fun SettingsScreen(onBack: () -> Unit) {
 			modifier = Modifier
 				.fillMaxSize()
 				.padding(inner)
-				.padding(16.dp),
+				.padding(16.dp)
+				.verticalScroll(rememberScrollState()),
 			verticalArrangement = Arrangement.spacedBy(12.dp)
 		) {
 			Text("OpenAI API Key", style = MaterialTheme.typography.titleMedium)
@@ -71,7 +76,7 @@ private fun SettingsScreen(onBack: () -> Unit) {
 				}
 			}
 
-			Divider()
+			HorizontalDivider()
 
 			Text("Default Analysis Prompt", style = MaterialTheme.typography.titleMedium)
 			Text(
@@ -93,6 +98,23 @@ private fun SettingsScreen(onBack: () -> Unit) {
 					Toast.makeText(context, "Default prompt saved", Toast.LENGTH_SHORT).show()
 				}) {
 					Text("Save Prompt")
+				}
+			}
+
+			HorizontalDivider()
+
+			Text("Transcription Speed-Up", style = MaterialTheme.typography.titleMedium)
+			Text(
+				"Shorten audio to reduce API cost. Higher speeds may slightly reduce accuracy.",
+				style = MaterialTheme.typography.bodySmall
+			)
+			Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+				listOf(1.0f to "Off", 1.25f to "1.25x", 1.5f to "1.5x", 2.0f to "2.0x").forEach { (value, label) ->
+					FilterChip(
+						selected = speed == value,
+						onClick = { speed = value; TranscriptionSettingsStore.saveSpeedFactor(context, value) },
+						label = { Text(label) }
+					)
 				}
 			}
 		}

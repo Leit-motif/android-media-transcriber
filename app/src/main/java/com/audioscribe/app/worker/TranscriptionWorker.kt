@@ -25,6 +25,18 @@ import android.content.Context.BATTERY_SERVICE
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.content.Context.CONNECTIVITY_SERVICE
+import com.audioscribe.app.utils.TranscriptionSettingsStore
+import androidx.core.net.toUri
+import androidx.media3.common.MediaItem
+import androidx.media3.common.C
+import androidx.media3.common.audio.SpeedProvider
+import androidx.media3.transformer.EditedMediaItem
+import androidx.media3.transformer.Effects
+import androidx.media3.transformer.Transformer
+import androidx.media3.common.util.UnstableApi
+import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
+import kotlinx.coroutines.suspendCancellableCoroutine
 
 /**
  * CoroutineWorker for handling transcription tasks in the background.
@@ -104,7 +116,7 @@ class TranscriptionWorker(
 				return Result.failure(createErrorOutput("Audio file path is required"))
 			}
 			
-			val audioFile = File(audioFilePath)
+			var audioFile = File(audioFilePath)
 			if (!audioFile.exists()) {
 				Log.e(TAG, "Audio file does not exist: $audioFilePath")
 				return Result.failure(createErrorOutput("Audio file not found: $audioFilePath"))
@@ -132,6 +144,22 @@ class TranscriptionWorker(
 			}
 			
 			Log.d(TAG, "Transcribing file: ${audioFile.name} (${audioFile.length()} bytes)")
+			
+			// Optional speed-up using Media3 Transformer, based on Settings
+			val speedFactor = TranscriptionSettingsStore.getSpeedFactor(applicationContext)
+			if (speedFactor > 1.0f) {
+				try {
+					val spedUp = exportWithSpeed(audioFile, speedFactor)
+					if (spedUp != null && spedUp.exists()) {
+						Log.d(TAG, "Using sped-up audio (${speedFactor}x): ${spedUp.name} -> ${spedUp.length()} bytes")
+						audioFile = spedUp
+					} else {
+						Log.w(TAG, "Speed-up export failed; falling back to original audio")
+					}
+				} catch (e: Exception) {
+					Log.w(TAG, "Speed-up export error; using original audio: ${e.message}")
+				}
+			}
 			
 			// Check cancellation one more time before starting the network call
 			if (isStopped) {
@@ -174,12 +202,12 @@ class TranscriptionWorker(
 					Log.d(TAG, "No session information available, skipping database storage")
 				}
 				
-				// Delete the WAV file after successful transcription
+				// Delete the audio file after successful transcription
 				val fileDeleted = FileManager.deleteTranscribedFile(audioFile)
 				if (fileDeleted) {
-					Log.d(TAG, "WAV file deleted after successful transcription: ${audioFile.name}")
+					Log.d(TAG, "Audio file deleted after successful transcription: ${audioFile.name}")
 				} else {
-					Log.w(TAG, "Failed to delete WAV file after transcription: ${audioFile.name}")
+					Log.w(TAG, "Failed to delete audio file after transcription: ${audioFile.name}")
 				}
 				
 				// Send success broadcast
@@ -233,6 +261,39 @@ class TranscriptionWorker(
 				
 				return Result.failure(createErrorOutput(errorMessage))
 			}
+		}
+	}
+	
+	@OptIn(UnstableApi::class)
+	private suspend fun exportWithSpeed(input: File, speed: Float): File? = suspendCancellableCoroutine { cont ->
+		try {
+			val mediaItem = MediaItem.fromUri(input.toUri())
+			val speedProvider = object : SpeedProvider {
+				override fun getSpeed(timeUs: Long): Float = speed
+				override fun getNextSpeedChangeTimeUs(timeUs: Long): Long = C.TIME_UNSET
+			}
+			val effectPair = Effects.createExperimentalSpeedChangingEffect(speedProvider)
+			val effects = Effects(listOf(effectPair.first), emptyList())
+			val edited = EditedMediaItem.Builder(mediaItem)
+				.setEffects(effects)
+				.build()
+			val outFile = File(applicationContext.cacheDir, input.nameWithoutExtension + "_x${speed}.m4a")
+			val transformer = Transformer.Builder(applicationContext).build()
+			transformer.start(edited, outFile.absolutePath)
+			// Simple await: poll until file has non-zero length or cancellation
+			applicationContext.mainExecutor.execute { }
+			var attempts = 0
+			while (attempts < 300 && !isStopped) { // ~30s max
+				if (outFile.exists() && outFile.length() > 0L) {
+					cont.resume(outFile)
+					return@suspendCancellableCoroutine
+				}
+				attempts++
+				Thread.sleep(100)
+			}
+			cont.resume(null)
+		} catch (e: Exception) {
+			cont.resume(null)
 		}
 	}
 	

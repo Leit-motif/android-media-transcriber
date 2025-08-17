@@ -4,7 +4,7 @@
             "outputFile": "com.audioscribe.app-mergeDebugResources-74:/values-v27/values-v27.xml",
             "map": [
                 {
-                    "source": "C:\\Users\\Rando\\.gradle\\caches\\8.12\\transforms\\809559be0d7868facac9399f98b60a71\\transformed\\core-splashscreen-1.0.1\\res\\values-v27\\values-v27.xml",
+                    "source": "C:\\Users\\Rando\\.gradle\\caches\\8.12\\transforms\\067cbfca301e9c08aa711e2fe7198f52\\transformed\\core-splashscreen-1.0.1\\res\\values-v27\\values-v27.xml",
                     "from": {
                         "startLines": "2,3,4,7",
                         "startColumns": "4,4,4,4",
