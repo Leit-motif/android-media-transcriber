@@ -376,12 +376,24 @@ fun AudioscribeScreen(
             )
         },
         floatingActionButton = {
-            ExtendedFloatingActionButton(
-                text = { Text("Record") },
-                icon = { Icon(Icons.Default.Mic, contentDescription = null) },
-                onClick = { runPreflight() }
-            )
+            if (!isRecording) {
+                ExtendedFloatingActionButton(
+                    text = { Text("Record") },
+                    icon = { Icon(Icons.Default.Mic, null) },
+                    onClick = {
+                        val now = checkPreflight(context)
+                        if (now.isEmpty()) {
+                            // No issues, start recording immediately
+                            onStartRecording()
+                        } else {
+                            issues = now
+                            showSheet = true
+                        }
+                    }
+                )
+            }
         },
+        floatingActionButtonPosition = FabPosition.End,
         bottomBar = {
             if (isRecording) {
                 BottomAppBar {
