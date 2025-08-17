@@ -23,6 +23,7 @@ import com.audioscribe.app.data.database.entity.SessionStatus
 import com.audioscribe.app.data.repository.SessionRepository
 import java.text.SimpleDateFormat
 import java.util.*
+import com.audioscribe.app.ui.theme.AudioscribeTheme
 
 @OptIn(ExperimentalMaterial3Api::class)
 class SessionListActivity : ComponentActivity() {
@@ -34,15 +35,17 @@ class SessionListActivity : ComponentActivity() {
         sessionRepository = SessionRepository(this)
         
         setContent {
-            SessionListScreen(
-                onBack = { finish() },
-                onSessionClick = { sessionId ->
-                    val intent = Intent(this@SessionListActivity, SessionDetailActivity::class.java).apply {
-                        putExtra("session_id", sessionId)
+            AudioscribeTheme {
+                SessionListScreen(
+                    onBack = { finish() },
+                    onSessionClick = { sessionId ->
+                        val intent = Intent(this@SessionListActivity, SessionDetailActivity::class.java).apply {
+                            putExtra("session_id", sessionId)
+                        }
+                        startActivity(intent)
                     }
-                    startActivity(intent)
-                }
-            )
+                )
+            }
         }
     }
 }
@@ -64,7 +67,7 @@ private fun SessionListScreen(
                 title = { Text("Transcription History") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = MaterialTheme.colorScheme.onSurface)
                     }
                 }
             )

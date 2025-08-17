@@ -26,9 +26,10 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.ContentCopy
-import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.filled.Pause
+import androidx.compose.material.icons.filled.Stop
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.text.selection.SelectionContainer
@@ -42,9 +43,13 @@ import com.audioscribe.app.data.repository.SessionRepository
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.remember
+import com.audioscribe.app.domain.permissions.PreflightIssue
+import com.audioscribe.app.domain.permissions.checkPreflight
+import com.audioscribe.app.domain.permissions.intentFor
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import kotlinx.coroutines.delay
 
 /**
  * Main Activity for Audioscribe
@@ -88,19 +93,8 @@ class MainActivity : ComponentActivity() {
     ) { permissions ->
         val allGranted = permissions.values.all { it }
         hasPermissions = allGranted
-        
-        if (allGranted) {
-            Log.i(TAG, "All permissions granted")
-            Toast.makeText(this, "Permissions granted", Toast.LENGTH_SHORT).show()
-        } else {
-            val deniedPermissions = permissions.filterValues { !it }.keys
-            Log.w(TAG, "Permissions denied: $deniedPermissions")
-            Toast.makeText(this, "Some permissions were denied. Please grant them to use the app.", Toast.LENGTH_LONG).show()
-            
-            if (PermissionManager.shouldShowRationale(this)) {
-                // Show rationale dialog
-                showPermissionRationale()
-            }
+        if (!allGranted) {
+            Toast.makeText(this, "Microphone permission required.", Toast.LENGTH_LONG).show()
         }
     }
     
@@ -125,7 +119,14 @@ class MainActivity : ComponentActivity() {
                     onRequestPermissions = { requestPermissions() },
                     onStartRecording = { startRecording() },
                     onStopRecording = { stopRecording() },
-                    onClearResults = { clearResults() }
+                    onClearResults = { clearResults() },
+                    requestMicPermission = {
+                        val missing = PermissionManager.getMissingPermissions(this)
+                        if (missing.isNotEmpty()) permissionsLauncher.launch(missing)
+                    },
+                    resolveIssue = { issue ->
+                        intentFor(issue, this)?.let { startActivity(it) }
+                    }
                 )
             }
         }
@@ -179,7 +180,7 @@ class MainActivity : ComponentActivity() {
     
     private fun startRecording() {
         if (!hasPermissions) {
-            Toast.makeText(this, "Permissions required", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, "Microphone permission required.", Toast.LENGTH_SHORT).show()
             return
         }
         
@@ -310,11 +311,14 @@ fun AudioscribeScreen(
     onRequestPermissions: () -> Unit,
     onStartRecording: () -> Unit,
     onStopRecording: () -> Unit,
-    onClearResults: () -> Unit
+    onClearResults: () -> Unit,
+    requestMicPermission: () -> Unit,
+    resolveIssue: (PreflightIssue) -> Unit
 ) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     
-    // Get the latest session's combined transcript from database
+    // Latest session combined transcript
     val latestSession by sessionRepository.getAllSessions().collectAsStateWithLifecycle(initialValue = emptyList())
     val latestSessionId = latestSession.firstOrNull()?.id
     val chunks by if (latestSessionId != null) {
@@ -325,15 +329,37 @@ fun AudioscribeScreen(
     
     val combinedTranscriptFromDB by remember(chunks) {
         derivedStateOf {
-            if (chunks.isNotEmpty()) {
-                chunks.joinToString(" ") { it.text }
-            } else ""
+            if (chunks.isNotEmpty()) chunks.joinToString(" ") { it.text } else ""
         }
     }
-    
-    // Use database transcript if available, otherwise fall back to broadcast transcript
     val displayTranscript = if (combinedTranscriptFromDB.isNotEmpty()) combinedTranscriptFromDB else transcriptionResult
-    
+
+    var showSheet by remember { mutableStateOf(false) }
+    var issues by remember { mutableStateOf<List<PreflightIssue>>(emptyList()) }
+    var elapsed by remember { mutableStateOf(0L) }
+
+    // Tick timer while recording
+    LaunchedEffect(isRecording) {
+        if (isRecording) {
+            elapsed = 0L
+            while (isRecording) {
+                delay(1000)
+                elapsed += 1
+            }
+        }
+    }
+
+    fun runPreflight() {
+        val now = checkPreflight(context)
+        if (now.isEmpty()) {
+            showSheet = false
+            onStartRecording()
+        } else {
+            issues = now
+            showSheet = true
+        }
+    }
+
     Scaffold(
         modifier = Modifier.fillMaxSize(),
         topBar = {
@@ -342,23 +368,48 @@ fun AudioscribeScreen(
                 actions = {
                     IconButton(onClick = {
                         context.startActivity(Intent(context, SessionListActivity::class.java))
-                    }) {
-                        Icon(
-                            imageVector = Icons.Default.History,
-                            contentDescription = "History"
-                        )
-                    }
-                    
+                    }) { Icon(imageVector = Icons.Default.History, contentDescription = "History", tint = MaterialTheme.colorScheme.onSurface) }
                     IconButton(onClick = {
                         context.startActivity(Intent(context, SettingsActivity::class.java))
-                    }) {
-                        Icon(
-                            imageVector = Icons.Default.Settings,
-                            contentDescription = "Settings"
-                        )
-                    }
+                    }) { Icon(imageVector = Icons.Default.Settings, contentDescription = "Settings", tint = MaterialTheme.colorScheme.onSurface) }
                 }
             )
+        },
+        floatingActionButton = {
+            ExtendedFloatingActionButton(
+                text = { Text("Record") },
+                icon = { Icon(Icons.Default.Mic, contentDescription = null) },
+                onClick = { runPreflight() }
+            )
+        },
+        bottomBar = {
+            if (isRecording) {
+                BottomAppBar {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 8.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = String.format("%02d:%02d", (elapsed / 60), (elapsed % 60)),
+                            style = MaterialTheme.typography.titleMedium
+                        )
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            // Pause placeholder (not implemented)
+                            IconButton(onClick = { /* TODO: implement pause */ }) {
+                                Icon(Icons.Default.Pause, contentDescription = "Pause", tint = MaterialTheme.colorScheme.onSurface)
+                            }
+                            FilledTonalButton(onClick = onStopRecording) {
+                                Icon(Icons.Default.Stop, contentDescription = null)
+                                Spacer(Modifier.width(8.dp))
+                                Text("Stop")
+                            }
+                        }
+                    }
+                }
+            }
         }
     ) { innerPadding ->
         Column(
@@ -378,133 +429,42 @@ fun AudioscribeScreen(
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
             
-            Spacer(modifier = Modifier.height(32.dp))
-            
-            // Permission status
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(
-                    containerColor = if (hasPermissions) 
-                        MaterialTheme.colorScheme.primaryContainer 
-                    else 
-                        MaterialTheme.colorScheme.errorContainer
-                )
-            ) {
-                Column(
-                    modifier = Modifier.padding(16.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    Text(
-                        text = if (hasPermissions) "✓ Permissions Granted" else "⚠ Permissions Required",
-                        style = MaterialTheme.typography.titleMedium,
-                        color = if (hasPermissions) 
-                            MaterialTheme.colorScheme.onPrimaryContainer 
-                        else 
-                            MaterialTheme.colorScheme.onErrorContainer
-                    )
-                    
-                    if (!hasPermissions) {
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Text(
-                            text = "Microphone, notification, and background service permissions are required",
-                            style = MaterialTheme.typography.bodySmall,
-                            textAlign = TextAlign.Center,
-                            color = MaterialTheme.colorScheme.onErrorContainer
-                        )
-                    }
-                }
-            }
-            
             Spacer(modifier = Modifier.height(24.dp))
-            
-            // Main action buttons
-            if (!hasPermissions) {
-                Button(
-                    onClick = onRequestPermissions,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Text("Grant Permissions")
-                }
-            } else {
-                if (!isRecording) {
-                    Button(
-                        onClick = onStartRecording,
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Text("Start Recording")
-                    }
-                } else {
-                    Button(
-                        onClick = onStopRecording,
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = MaterialTheme.colorScheme.error
-                        )
-                    ) {
-                        Text("Stop Recording")
-                    }
-                }
-            }
-            
-            Spacer(modifier = Modifier.height(16.dp))
-            
-            // Status text
-            Text(
-                text = when {
-                    !hasPermissions -> "Please grant permissions to continue"
-                    isProcessing -> "⏳ Processing recording..."
-                    isRecording -> "🔴 Recording audio from other apps..."
-                    else -> "Ready to record"
-                },
-                style = MaterialTheme.typography.bodyMedium,
-                textAlign = TextAlign.Center,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
             
             // Transcription Results Section
             if (displayTranscript.isNotEmpty() || isProcessing) {
-                Spacer(modifier = Modifier.height(24.dp))
-                
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     colors = CardDefaults.cardColors(
                         containerColor = MaterialTheme.colorScheme.surfaceVariant
                     )
                 ) {
-                    Column(
-                        modifier = Modifier.padding(16.dp)
-                    ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text(
-                                    text = "Results",
-                                    style = MaterialTheme.typography.titleMedium,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                                Spacer(modifier = Modifier.width(8.dp))
-                                if (displayTranscript.isNotEmpty()) {
-                                    TextButton(onClick = {
-                                        val intent = Intent(context, TranscriptionDetailActivity::class.java).apply {
-                                            putExtra(TranscriptionDetailActivity.EXTRA_TRANSCRIPTION_TEXT, displayTranscript)
-                                        }
-                                        context.startActivity(intent)
-                                    }) {
-                                        Text("Open")
+                            Text(
+                                text = "Results",
+                                style = MaterialTheme.typography.titleMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            TextButton(onClick = {
+                                val latestSessionId = latestSession.firstOrNull()?.id
+                                if (latestSessionId != null) {
+                                    val intent = Intent(context, SessionDetailActivity::class.java).apply {
+                                        putExtra("session_id", latestSessionId)
                                     }
+                                    context.startActivity(intent)
+                                } else {
+                                    context.startActivity(Intent(context, SessionListActivity::class.java))
                                 }
-                            }
+                            }) { Text("View session →") }
                         }
-                        
                         Spacer(modifier = Modifier.height(8.dp))
-                        
                         if (isProcessing) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
                                 CircularProgressIndicator(
                                     modifier = Modifier.size(16.dp),
                                     strokeWidth = 2.dp
@@ -535,13 +495,64 @@ fun AudioscribeScreen(
                                             text = displayTranscript,
                                             style = MaterialTheme.typography.bodyMedium,
                                             modifier = Modifier.padding(12.dp),
-                                            color = MaterialTheme.colorScheme.onSurface
+                                            color = MaterialTheme.colorScheme.onSurface,
+                                            maxLines = 8
                                         )
                                     }
                                 }
                             }
                         }
                     }
+                }
+            }
+        }
+
+        if (showSheet) {
+            PermissionSheet(
+                issues = issues,
+                onIssueAction = { issue ->
+                    when (issue) {
+                        PreflightIssue.MicPermission -> requestMicPermission()
+                        else -> resolveIssue(issue)
+                    }
+                },
+                onClose = {
+                    // Re-check after user attempts resolution
+                    val now = checkPreflight(context)
+                    issues = now
+                    if (now.isEmpty()) { showSheet = false; onStartRecording() } else showSheet = true
+                }
+            )
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun PermissionSheet(
+    issues: List<PreflightIssue>,
+    onIssueAction: (PreflightIssue) -> Unit,
+    onClose: () -> Unit
+) {
+    ModalBottomSheet(onDismissRequest = onClose) {
+        Column(Modifier.fillMaxWidth().padding(16.dp)) {
+            Text("Before recording", style = MaterialTheme.typography.titleMedium)
+            Spacer(Modifier.height(8.dp))
+            issues.forEach { issue ->
+                Row(
+                    Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        when (issue) {
+                            PreflightIssue.MicPermission    -> "Microphone access"
+                            PreflightIssue.AccessibilityOff -> "Enable Accessibility service"
+                            PreflightIssue.OverlayOff       -> "Allow display over other apps"
+                            PreflightIssue.BatteryOptimized -> "Ignore battery optimization"
+                        }
+                    )
+                    TextButton(onClick = { onIssueAction(issue) }) { Text("Enable") }
                 }
             }
         }
@@ -561,7 +572,9 @@ fun AudioscribeScreenPreview() {
             onRequestPermissions = {},
             onStartRecording = {},
             onStopRecording = {},
-            onClearResults = {}
+            onClearResults = {},
+            requestMicPermission = {},
+            resolveIssue = {}
         )
     }
 }
@@ -579,7 +592,9 @@ fun AudioscribeScreenWithResultsPreview() {
             onRequestPermissions = {},
             onStartRecording = {},
             onStopRecording = {},
-            onClearResults = {}
+            onClearResults = {},
+            requestMicPermission = {},
+            resolveIssue = {}
         )
     }
 }

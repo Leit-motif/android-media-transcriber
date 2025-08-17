@@ -24,6 +24,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.audioscribe.app.data.database.entity.TranscriptionSession
@@ -32,6 +33,7 @@ import com.audioscribe.app.data.repository.SessionRepository
 import java.text.SimpleDateFormat
 import java.util.*
 import kotlinx.coroutines.launch
+import com.audioscribe.app.utils.PromptStore
 
 @OptIn(ExperimentalMaterial3Api::class)
 class SessionDetailActivity : ComponentActivity() {
@@ -118,7 +120,7 @@ private fun SessionDetailScreen(
                 },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = MaterialTheme.colorScheme.onSurface)
                     }
                 },
                 actions = {
@@ -129,7 +131,7 @@ private fun SessionDetailScreen(
 								showDeleteDialog = true
 							}
 						) {
-							Icon(Icons.Default.Delete, contentDescription = "Delete Session")
+							Icon(Icons.Default.Delete, contentDescription = "Delete Session", tint = MaterialTheme.colorScheme.onSurface)
 						}
 					}
 					
@@ -142,7 +144,7 @@ private fun SessionDetailScreen(
 								Toast.makeText(context, "Copied", Toast.LENGTH_SHORT).show()
 							}
 						) {
-							Icon(Icons.Default.ContentCopy, contentDescription = "Copy")
+							Icon(Icons.Default.ContentCopy, contentDescription = "Copy", tint = MaterialTheme.colorScheme.onSurface)
 						}
 
 						IconButton(
@@ -154,17 +156,25 @@ private fun SessionDetailScreen(
 								context.startActivity(Intent.createChooser(share, "Share transcription"))
 							}
 						) {
-							Icon(Icons.Default.Share, contentDescription = "Share")
+							Icon(Icons.Default.Share, contentDescription = "Share", tint = MaterialTheme.colorScheme.onSurface)
 						}
 
 						IconButton(
 							onClick = {
+								// Send to ChatGPT with default prompt prepended
+								val defaultPrompt = PromptStore.getDefaultPrompt(context)
+								val combined = buildString {
+									if (defaultPrompt.isNotEmpty()) {
+										append(defaultPrompt)
+										append("\n\n")
+									}
+									append(transcriptText)
+								}
 								val send = Intent(Intent.ACTION_SEND).apply {
 									type = "text/plain"
-									putExtra(Intent.EXTRA_TEXT, transcriptText)
+									putExtra(Intent.EXTRA_TEXT, combined)
 								}
 								try {
-									// Try direct to ChatGPT if installed
 									send.`package` = "com.openai.chatgpt"
 									context.startActivity(send)
 								} catch (_: Exception) {
@@ -172,7 +182,7 @@ private fun SessionDetailScreen(
 								}
 							}
 						) {
-							Icon(Icons.Default.Send, contentDescription = "Send to ChatGPT")
+							Icon(Icons.Default.Send, contentDescription = "Send to ChatGPT", tint = MaterialTheme.colorScheme.onSurface)
 						}
 					}
 				}

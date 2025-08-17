@@ -14,6 +14,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import com.audioscribe.app.ui.theme.AudioscribeTheme
 import com.audioscribe.app.utils.ApiKeyStore
+import com.audioscribe.app.utils.PromptStore
 
 class SettingsActivity : ComponentActivity() {
 
@@ -32,6 +33,7 @@ class SettingsActivity : ComponentActivity() {
 private fun SettingsScreen(onBack: () -> Unit) {
 	val context = androidx.compose.ui.platform.LocalContext.current
 	var apiKey by remember { mutableStateOf(ApiKeyStore.getApiKey(context)) }
+	var defaultPrompt by remember { mutableStateOf(PromptStore.getDefaultPrompt(context)) }
 
     Scaffold(
         topBar = {
@@ -64,9 +66,33 @@ private fun SettingsScreen(onBack: () -> Unit) {
 				Button(onClick = {
 					ApiKeyStore.saveApiKey(context, apiKey)
 					Toast.makeText(context, "API key saved", Toast.LENGTH_SHORT).show()
-					onBack()
 				}) {
-					Text("Save")
+					Text("Save API Key")
+				}
+			}
+
+			Divider()
+
+			Text("Default Analysis Prompt", style = MaterialTheme.typography.titleMedium)
+			Text(
+				"Used when sending transcripts to ChatGPT. You can customize this for your workflow.",
+				style = MaterialTheme.typography.bodySmall
+			)
+			OutlinedTextField(
+				value = defaultPrompt,
+				onValueChange = { defaultPrompt = it },
+				modifier = Modifier
+					.fillMaxWidth()
+					.heightIn(min = 160.dp),
+				placeholder = { Text("Enter your default instructions for analysis…") },
+				maxLines = 12
+			)
+			Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+				Button(onClick = {
+					PromptStore.saveDefaultPrompt(context, defaultPrompt)
+					Toast.makeText(context, "Default prompt saved", Toast.LENGTH_SHORT).show()
+				}) {
+					Text("Save Prompt")
 				}
 			}
 		}

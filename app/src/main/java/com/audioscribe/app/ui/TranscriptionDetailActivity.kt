@@ -27,6 +27,7 @@ import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import com.audioscribe.app.ui.theme.AudioscribeTheme
+import com.audioscribe.app.utils.PromptStore
 
 class TranscriptionDetailActivity : ComponentActivity() {
 
@@ -95,19 +96,19 @@ private fun TranscriptionDetailScreen(text: String, onBack: () -> Unit) {
 				},
 				navigationIcon = {
 					IconButton(onClick = onBack) {
-						Icon(imageVector = Icons.Filled.ArrowBack, contentDescription = "Back")
+						Icon(imageVector = Icons.Filled.ArrowBack, contentDescription = "Back", tint = MaterialTheme.colorScheme.onSurface)
 					}
 				},
 				actions = {
 					IconButton(onClick = { searchActive = !searchActive; if (!searchActive) searchField = TextFieldValue("") }) {
-						Icon(imageVector = Icons.Filled.Search, contentDescription = "Search")
+						Icon(imageVector = Icons.Filled.Search, contentDescription = "Search", tint = MaterialTheme.colorScheme.onSurface)
 					}
 					IconButton(onClick = {
 						val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
 						cm.setPrimaryClip(ClipData.newPlainText("Transcription", text))
 						Toast.makeText(context, "Copied", Toast.LENGTH_SHORT).show()
 					}) {
-						Icon(imageVector = Icons.Filled.ContentCopy, contentDescription = "Copy")
+						Icon(imageVector = Icons.Filled.ContentCopy, contentDescription = "Copy", tint = MaterialTheme.colorScheme.onSurface)
 					}
 					IconButton(onClick = {
 						val share = Intent(Intent.ACTION_SEND).apply {
@@ -116,22 +117,30 @@ private fun TranscriptionDetailScreen(text: String, onBack: () -> Unit) {
 						}
 						context.startActivity(Intent.createChooser(share, "Share transcription"))
 					}) {
-						Icon(imageVector = Icons.Filled.Share, contentDescription = "Share")
+						Icon(imageVector = Icons.Filled.Share, contentDescription = "Share", tint = MaterialTheme.colorScheme.onSurface)
 					}
 					IconButton(onClick = {
+						// Send to ChatGPT with default prompt prepended
+						val defaultPrompt = PromptStore.getDefaultPrompt(context)
+						val combined = buildString {
+							if (defaultPrompt.isNotEmpty()) {
+								append(defaultPrompt)
+								append("\n\n")
+							}
+							append(text)
+						}
 						val send = Intent(Intent.ACTION_SEND).apply {
 							type = "text/plain"
-							putExtra(Intent.EXTRA_TEXT, text)
+							putExtra(Intent.EXTRA_TEXT, combined)
 						}
 						try {
-							// Try direct to ChatGPT if installed
 							send.`package` = "com.openai.chatgpt"
 							context.startActivity(send)
 						} catch (_: Exception) {
 							context.startActivity(Intent.createChooser(send, "Send to ChatGPT"))
 						}
 					}) {
-						Icon(imageVector = Icons.Filled.Send, contentDescription = "Send to ChatGPT")
+						Icon(imageVector = Icons.Filled.Send, contentDescription = "Send to ChatGPT", tint = MaterialTheme.colorScheme.onSurface)
 					}
 				}
 			)

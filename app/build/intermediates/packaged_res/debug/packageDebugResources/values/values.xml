@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <color name="black">#FF000000</color>
-    <color name="splash_background">#FF6200EE</color>
+    <color name="splash_background">#FF6650A4</color>
     <color name="white">#FFFFFFFF</color>
     <string name="app_name">Audioscribe</string>
     <string name="audio_permission_rationale">Audioscribe needs audio recording permission to capture system audio for transcription.</string>
